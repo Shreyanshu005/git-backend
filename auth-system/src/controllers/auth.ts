@@ -49,7 +49,7 @@ export const register = async (req: Request, res: Response) => {
         await sendOTP(mobileNumber, otp);
         console.log('OTP sent successfully');
 
-        res.status(201).json({
+        return res.status(201).json({
             message: 'User registered successfully. Please verify your mobile number.',
             userId: user.id
         });
@@ -60,7 +60,7 @@ export const register = async (req: Request, res: Response) => {
             code: error.code,
             meta: error.meta
         });
-        res.status(500).json({ 
+        return res.status(500).json({ 
             error: 'Registration failed',
             details: error.message
         });
@@ -93,10 +93,10 @@ export const login = async (req: Request, res: Response) => {
         // In production, implement actual SMS sending
         await sendOTP(mobileNumber, otp);
 
-        res.json({ message: 'OTP sent successfully' });
+        return res.json({ message: 'OTP sent successfully' });
     } catch (error) {
         console.error('Login error:', error);
-        res.status(500).json({ error: 'Login failed' });
+        return res.status(500).json({ error: 'Login failed' });
     }
 };
 
@@ -201,10 +201,10 @@ export const resendOTP = async (req: Request, res: Response) => {
         // In production, implement actual SMS sending
         await sendOTP(mobileNumber, otp);
 
-        res.json({ message: 'New OTP sent successfully' });
+        return res.json({ message: 'New OTP sent successfully' });
     } catch (error) {
         console.error('Resend OTP error:', error);
-        res.status(500).json({ error: 'Failed to resend OTP' });
+        return res.status(500).json({ error: 'Failed to resend OTP' });
     }
 };
 
@@ -225,7 +225,7 @@ export const getProfile = async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'User not found' });
         }
 
-        res.json({
+        return res.json({
             id: user.id,
             name: user.name,
             mobileNumber: user.mobileNumber,
@@ -233,6 +233,6 @@ export const getProfile = async (req: Request, res: Response) => {
         });
     } catch (error) {
         console.error('Get profile error:', error);
-        res.status(500).json({ error: 'Failed to get profile' });
+        return res.status(500).json({ error: 'Failed to get profile' });
     }
 }; 

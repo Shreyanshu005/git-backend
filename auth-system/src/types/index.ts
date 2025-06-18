@@ -3,13 +3,14 @@ import { Socket } from 'socket.io';
 
 export interface CustomRequest extends Request {
     user?: {
-        _id: string;
+        userId: string;
+        mobileNumber: string;
     };
 }
 
 export interface CustomSocket extends Socket {
     user?: {
-        _id: string;
+        userId: string;
         name: string;
     };
 }

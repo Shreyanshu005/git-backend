@@ -1,9 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { CustomRequest, CustomError } from '../types';
-import { User } from '../models/User';
+import { prisma } from '../config/database';
 
-export const verifyToken = async (req: Request, res: Response, next: NextFunction) => {
+export const verifyToken = async (req: Request, _res: Response, next: NextFunction) => {
     try {
         const authHeader = req.header('Authorization');
         
@@ -19,20 +19,21 @@ export const verifyToken = async (req: Request, res: Response, next: NextFunctio
             return;
         }
 
-        const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as { _id: string; version: number };
+        const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as { userId: string; mobileNumber: string };
         
-        const user = await User.findById(decoded._id);
+        const user = await prisma.user.findUnique({
+            where: { id: decoded.userId }
+        });
+        
         if (!user) {
             next(new CustomError('User not found', 404));
             return;
         }
 
-        if (user.version !== decoded.version) {
-            next(new CustomError('Session expired. Please login again.', 401));
-            return;
-        }
-
-        (req as CustomRequest).user = { _id: user._id };
+        (req as CustomRequest).user = { 
+            userId: user.id,
+            mobileNumber: user.mobileNumber 
+        };
         next();
     } catch (error) {
         next(new CustomError('Invalid token', 401));

@@ -1,12 +1,11 @@
 import { Socket } from 'socket.io';
 import jwt, { JwtPayload } from 'jsonwebtoken';
-import { User } from '../models/User';
+import { prisma } from '../config/database';
 import { CustomSocket } from '../types';
 
 interface User {
-    _id: string;
-    version: number;
-    name: string;
+    userId: string;
+    mobileNumber: string;
 }
 
 interface AuthError {
@@ -28,9 +27,12 @@ const authenticateSocket = async (socket: Socket, next: Function) => {
 
     try {
         const decoded = jwt.verify(token as string, process.env.JWT_SECRET as string) as unknown as JwtPayload & User;
-        const userId = decoded._id;
+        const userId = decoded.userId;
 
-        const user = await User.findById(userId);
+        const user = await prisma.user.findUnique({
+            where: { id: userId }
+        });
+        
         if (!user) {
             const error: AuthError = {
                 type: 'USER_NOT_FOUND',
@@ -40,18 +42,9 @@ const authenticateSocket = async (socket: Socket, next: Function) => {
             return next(new Error(error.message));
         }
 
-        if (user.version !== decoded.version) {
-            const error: AuthError = {
-                type: 'TOKEN_EXPIRED',
-                message: 'Session expired, please login again'
-            };
-            socket.emit('auth_error', error);
-            return next(new Error(error.message));
-        }
-
         const customSocket = socket as CustomSocket;
         customSocket.user = {
-            _id: user._id,
+            userId: user.id,
             name: user.name,
         };
         next();

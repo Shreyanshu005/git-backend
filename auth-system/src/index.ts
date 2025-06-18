@@ -1,7 +1,6 @@
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import { prisma } from './config/database';
 import dotenv from 'dotenv';
 import authRoutes from './routes/auth';
 import { authenticate } from './middlewares/auth';
@@ -46,7 +45,7 @@ io.on('connection', (socket) => {
 });
 
 // Error handling middleware
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('Error details:', {
     message: err.message,
     stack: err.stack,
