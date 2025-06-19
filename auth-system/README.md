@@ -9,7 +9,7 @@ A complete authentication system using mobile number verification with OTP and P
 - No password required
 - JWT token-based session management
 - Socket.io authentication
-- PostgreSQL database with Prisma ORM
+- PostgreSQL database with PrismaORM
 - TypeScript support
 
 ## Prerequisites
