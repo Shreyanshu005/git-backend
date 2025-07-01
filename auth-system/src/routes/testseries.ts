@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authenticate } from '../middlewares/auth';
@@ -12,10 +11,10 @@ const prisma = new PrismaClient();
 
 // Multer setup for image uploads
 const storage = multer.diskStorage({
-  destination: function (_req, _file, cb) {
+  destination: function (req: Request, file: MulterFile, cb: (error: Error | null, destination: string) => void) {
     cb(null, path.join(__dirname, '../../uploads'));
   },
-  filename: function (_req, file, cb) {
+  filename: function (req: Request, file: MulterFile, cb: (error: Error | null, filename: string) => void) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     cb(null, uniqueSuffix + '-' + file.originalname);
   }
@@ -86,12 +85,12 @@ router.delete('/:id', authenticate, async (req, res) => {
 });
 
 // Image upload endpoint (admin only)
-router.post('/upload-image', authenticate, upload.single('image'), async (req, res) => {
+router.post('/upload-image', authenticate, upload.single('image'), async (req: Request, res) => {
   try {
     if (!req.user || !req.user.isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
-    const file = req.file;
+    const file = (req as Request & { file?: MulterFile }).file;
     if (!file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
