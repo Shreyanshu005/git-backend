@@ -5,6 +5,7 @@ export interface CustomRequest extends Request {
     user?: {
         userId: string;
         mobileNumber: string;
+        isAdmin: boolean;
     };
 }
 

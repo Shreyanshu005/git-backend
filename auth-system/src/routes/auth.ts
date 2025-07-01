@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { register, login, verifyOTP, resendOTP, getProfile } from '../controllers/auth';
+import { authenticate } from '../middlewares/auth';
 
 const router = Router();
 
@@ -10,6 +11,6 @@ router.post('/verify-otp', verifyOTP);
 router.post('/resend-otp', resendOTP);
 
 // Protected routes
-router.get('/profile', getProfile);
+router.get('/profile', authenticate, getProfile);
 
 export default router; 

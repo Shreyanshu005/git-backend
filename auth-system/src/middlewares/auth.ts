@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { prisma } from '../config/database';
 
 // Extend Express Request type to include user
 declare global {
@@ -8,12 +9,13 @@ declare global {
             user?: {
                 userId: string;
                 mobileNumber: string;
+                isAdmin: boolean;
             };
         }
     }
 }
 
-export const authenticate = (req: Request, res: Response, next: NextFunction) => {
+export const authenticate = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const token = req.headers.authorization?.split(' ')[1];
 
@@ -26,7 +28,20 @@ export const authenticate = (req: Request, res: Response, next: NextFunction) =>
             mobileNumber: string;
         };
 
-        req.user = decoded;
+        // Fetch user from DB to get isAdmin
+        const user = await prisma.user.findUnique({
+            where: { id: decoded.userId },
+            select: { id: true, mobileNumber: true, isAdmin: true }
+        });
+        if (!user) {
+            return res.status(401).json({ error: 'User not found' });
+        }
+
+        req.user = {
+            userId: user.id,
+            mobileNumber: user.mobileNumber,
+            isAdmin: user.isAdmin,
+        };
         return next();
     } catch (error) {
         return res.status(401).json({ error: 'Invalid token' });

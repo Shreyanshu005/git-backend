@@ -32,7 +32,8 @@ export const verifyToken = async (req: Request, _res: Response, next: NextFuncti
 
         (req as CustomRequest).user = { 
             userId: user.id,
-            mobileNumber: user.mobileNumber 
+            mobileNumber: user.mobileNumber,
+            isAdmin: user.isAdmin,
         };
         next();
     } catch (error) {

@@ -5,6 +5,9 @@ import dotenv from 'dotenv';
 import authRoutes from './routes/auth';
 import { authenticate } from './middlewares/auth';
 import cors from 'cors';
+import courseRoutes from './routes/courses';
+import path from 'path';
+import testSeriesRoutes from './routes/testseries';
 
 // Load environment variables
 dotenv.config();
@@ -35,6 +38,9 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Serve uploads directory
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
 // Health check endpoint
 app.get('/api/health', (_req, res) => {
   res.status(200).json({ 
@@ -47,6 +53,8 @@ app.get('/api/health', (_req, res) => {
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/courses', courseRoutes);
+app.use('/api/testseries', testSeriesRoutes);
 
 // Protected route example
 app.get('/api/protected', authenticate, (req, res) => {

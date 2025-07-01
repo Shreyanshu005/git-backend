@@ -6,8 +6,20 @@ import { generateOTP, sendOTP, verifyOTP as verifyOTPUtil } from '../utils/otp';
 // Store OTPs temporarily (in production, use Redis)
 const otpStore = new Map<string, { otp: string; expires: number }>();
 
+// Utility to remove unverified users older than 10 minutes
+async function cleanupUnverifiedUsers() {
+  const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+  await prisma.user.deleteMany({
+    where: {
+      isVerified: false,
+      createdAt: { lt: tenMinutesAgo },
+    },
+  });
+}
+
 export const register = async (req: Request, res: Response) => {
     try {
+        await cleanupUnverifiedUsers();
         console.log('Register request body:', req.body);
         const { name, mobileNumber } = req.body;
 
@@ -102,6 +114,7 @@ export const login = async (req: Request, res: Response) => {
 
 export const verifyOTP = async (req: Request, res: Response) => {
     try {
+        await cleanupUnverifiedUsers();
         console.log('OTP verification request body:', req.body);
         
         const { mobileNumber, otp } = req.body;
@@ -229,7 +242,8 @@ export const getProfile = async (req: Request, res: Response) => {
             id: user.id,
             name: user.name,
             mobileNumber: user.mobileNumber,
-            isVerified: user.isVerified
+            isVerified: user.isVerified,
+            isAdmin: user.isAdmin
         });
     } catch (error) {
         console.error('Get profile error:', error);
