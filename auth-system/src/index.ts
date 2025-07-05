@@ -23,21 +23,48 @@ const io = new Server(httpServer, {
   }
 });
 
+// CORS configuration
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:3002',
+  'https://ias-frontend-snowy.vercel.app',
+  'https://www.maheshanias.com',
+  'https://maheshanias.com',
+  'https://git-backend-ijf5.onrender.com'
+];
+
 // Middleware
 app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'http://localhost:3002',
-    'https://ias-frontend-snowy.vercel.app',
-    'https://www.maheshanias.com',
-    'https://maheshanias.com'
-
-  ],
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log('CORS blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+  maxAge: 86400, // 24 hours
 }));
+
+// Handle preflight requests explicitly
+app.options('*', cors());
+
+// Add CORS debugging middleware
+app.use((req, _res, next) => {
+  console.log('Request origin:', req.headers.origin);
+  console.log('Request method:', req.method);
+  console.log('Request headers:', req.headers);
+  next();
+});
+
 app.use(express.json());
 
 // Serve uploads directory
@@ -82,7 +109,16 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
     name: err.name
   });
   
-  res.status(500).json({ 
+  // Handle CORS errors specifically
+  if (err.message === 'Not allowed by CORS') {
+    return res.status(403).json({ 
+      error: 'CORS Error',
+      message: 'Origin not allowed by CORS policy',
+      allowedOrigins: allowedOrigins
+    });
+  }
+  
+  return res.status(500).json({ 
     error: 'Something went wrong!',
     message: err.message,
     type: err.name
