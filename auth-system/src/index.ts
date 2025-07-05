@@ -8,6 +8,8 @@ import cors from 'cors';
 import courseRoutes from './routes/courses';
 import path from 'path';
 import testSeriesRoutes from './routes/testseries';
+import currentAffairsRoutes from './routes/currentAffairs';
+import dpqRoutes from './routes/dpq';
 
 // Load environment variables
 dotenv.config();
@@ -55,6 +57,8 @@ app.get('/api/health', (_req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/courses', courseRoutes);
 app.use('/api/testseries', testSeriesRoutes);
+app.use('/api/current-affairs', currentAffairsRoutes);
+app.use('/api/dpq', dpqRoutes);
 
 // Protected route example
 app.get('/api/protected', authenticate, (req, res) => {

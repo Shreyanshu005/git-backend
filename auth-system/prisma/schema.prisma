@@ -65,3 +65,19 @@ model Purchase {
   purchasedAt  DateTime @default(now())
   status       String   // e.g. 'active', 'cancelled', 'refunded'
 } 
+
+model CurrentAffair {
+  id        String   @id @default(uuid())
+  title     String
+  date      DateTime
+  pdfUrl    String
+  createdAt DateTime @default(now())
+} 
+
+model DailyPracticeQuestion {
+  id        String   @id @default(uuid())
+  title     String
+  date      DateTime
+  pdfUrl    String
+  createdAt DateTime @default(now())
+} 

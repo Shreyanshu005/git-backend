@@ -223,7 +223,6 @@ export const resendOTP = async (req: Request, res: Response) => {
 
 export const getProfile = async (req: Request, res: Response) => {
     try {
-        // @ts-ignore - we'll add the user to the request in the auth middleware
         const userId = req.user?.userId;
 
         if (!userId) {
@@ -239,14 +238,170 @@ export const getProfile = async (req: Request, res: Response) => {
         }
 
         return res.json({
-            id: user.id,
-            name: user.name,
-            mobileNumber: user.mobileNumber,
-            isVerified: user.isVerified,
-            isAdmin: user.isAdmin
+            message: 'Profile fetched successfully',
+            user: {
+                id: user.id,
+                name: user.name,
+                mobileNumber: user.mobileNumber,
+                isVerified: user.isVerified,
+                isAdmin: user.isAdmin
+            }
         });
     } catch (error) {
         console.error('Get profile error:', error);
         return res.status(500).json({ error: 'Failed to get profile' });
+    }
+};
+
+export const updateProfile = async (req: Request, res: Response) => {
+    try {
+        const userId = req.user?.userId;
+        const { name, mobileNumber } = req.body;
+
+        if (!userId) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+
+        // Only allow name updates through this endpoint
+        if (mobileNumber) {
+            return res.status(400).json({ error: 'Mobile number updates require OTP verification' });
+        }
+
+        if (!name || name.trim() === '') {
+            return res.status(400).json({ error: 'Name cannot be empty' });
+        }
+
+        const user = await prisma.user.update({
+            where: { id: userId },
+            data: { name: name.trim() }
+        });
+
+        return res.json({
+            message: 'Profile updated successfully',
+            user: {
+                id: user.id,
+                name: user.name,
+                mobileNumber: user.mobileNumber,
+                isVerified: user.isVerified,
+                isAdmin: user.isAdmin
+            }
+        });
+    } catch (error) {
+        console.error('Update profile error:', error);
+        return res.status(500).json({ error: 'Failed to update profile' });
+    }
+};
+
+export const sendProfileUpdateOTP = async (req: Request, res: Response) => {
+    try {
+        const userId = req.user?.userId;
+        const { mobileNumber } = req.body;
+
+        if (!userId) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+
+        if (!mobileNumber) {
+            return res.status(400).json({ error: 'Mobile number is required' });
+        }
+
+        // Validate mobile number format
+        if (!/^[6-9]\d{9}$/.test(mobileNumber)) {
+            return res.status(400).json({ error: 'Please enter a valid 10-digit mobile number' });
+        }
+
+        const user = await prisma.user.findUnique({
+            where: { id: userId }
+        });
+
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Check if new mobile number is different from current
+        if (mobileNumber === user.mobileNumber) {
+            return res.status(400).json({ error: 'New mobile number must be different from current number' });
+        }
+
+        // Check if mobile number is already taken by another user
+        const existingUser = await prisma.user.findUnique({
+            where: { mobileNumber }
+        });
+
+        if (existingUser && existingUser.id !== userId) {
+            return res.status(400).json({ error: 'Mobile number is already registered with another account' });
+        }
+
+        // Generate and send OTP
+        const otp = generateOTP();
+        otpStore.set(`profile_${mobileNumber}`, {
+            otp,
+            expires: Date.now() + 10 * 60 * 1000 // 10 minutes
+        });
+
+        await sendOTP(mobileNumber, otp);
+
+        return res.json({ message: 'OTP sent successfully for mobile number update' });
+    } catch (error) {
+        console.error('Send profile update OTP error:', error);
+        return res.status(500).json({ error: 'Failed to send OTP' });
+    }
+};
+
+export const verifyProfileUpdateOTP = async (req: Request, res: Response) => {
+    try {
+        const userId = req.user?.userId;
+        const { mobileNumber, otp, newMobileNumber } = req.body;
+
+        if (!userId) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+
+        if (!mobileNumber || !otp || !newMobileNumber) {
+            return res.status(400).json({ error: 'Mobile number, OTP, and new mobile number are required' });
+        }
+
+        // Verify OTP
+        const storedOTP = otpStore.get(`profile_${mobileNumber}`);
+        if (!storedOTP || storedOTP.otp !== otp || Date.now() > storedOTP.expires) {
+            return res.status(400).json({ error: 'Invalid or expired OTP' });
+        }
+
+        // Validate new mobile number format
+        if (!/^[6-9]\d{9}$/.test(newMobileNumber)) {
+            return res.status(400).json({ error: 'Please enter a valid 10-digit mobile number' });
+        }
+
+        // Check if new mobile number is already taken by another user
+        const existingUser = await prisma.user.findUnique({
+            where: { mobileNumber: newMobileNumber }
+        });
+
+        if (existingUser && existingUser.id !== userId) {
+            return res.status(400).json({ error: 'Mobile number is already registered with another account' });
+        }
+
+        // Update mobile number
+        const user = await prisma.user.update({
+            where: { id: userId },
+            data: { mobileNumber: newMobileNumber }
+        });
+
+        // Clear OTP
+        otpStore.delete(`profile_${mobileNumber}`);
+
+        return res.json({
+            message: 'Mobile number updated successfully',
+            user: {
+                id: user.id,
+                name: user.name,
+                mobileNumber: user.mobileNumber,
+                isVerified: user.isVerified,
+                isAdmin: user.isAdmin
+            }
+        });
+    } catch (error) {
+        console.error('Verify profile update OTP error:', error);
+        return res.status(500).json({ error: 'Failed to update mobile number' });
     }
 }; 
