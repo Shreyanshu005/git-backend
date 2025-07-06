@@ -23,30 +23,9 @@ const io = new Server(httpServer, {
   }
 });
 
-// CORS configuration
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'http://localhost:3002',
-  'https://ias-frontend-snowy.vercel.app',
-  'https://www.maheshanias.com',
-  'https://maheshanias.com',
-  'https://git-backend-ijf5.onrender.com'
-];
-
-// Middleware
+// CORS configuration - Alternative more permissive setup
 app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      console.log('CORS blocked origin:', origin);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: true, // Allow all origins temporarily
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
@@ -113,8 +92,7 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   if (err.message === 'Not allowed by CORS') {
     return res.status(403).json({ 
       error: 'CORS Error',
-      message: 'Origin not allowed by CORS policy',
-      allowedOrigins: allowedOrigins
+      message: 'Origin not allowed by CORS policy'
     });
   }
   
