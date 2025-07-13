@@ -17,6 +17,67 @@ router.get('/', async (_req, res) => {
   }
 });
 
+// NEW: Get all test series purchased by the current user
+router.get('/purchased', authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    console.log('Fetching purchased test series for user:', userId);
+
+    const purchases = await prisma.testSeriesPurchase.findMany({
+      where: { userId, status: 'active' },
+      include: { testSeries: true },
+    });
+    console.log('Found purchases:', purchases);
+
+    const testSeries = purchases.map((p) => p.testSeries);
+    console.log('Returning test series:', testSeries);
+    res.json({ testSeries });
+  } catch (error) {
+    console.error('Error fetching purchased test series:', error);
+    res.status(500).json({ error: 'Failed to fetch purchased test series' });
+  }
+});
+
+// NEW: Check if the current user has purchased a specific test series
+router.get('/:id/purchased', authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const testSeriesId = req.params.id;
+    const purchase = await prisma.testSeriesPurchase.findFirst({
+      where: { userId, testSeriesId, status: 'active' },
+    });
+    res.json({ purchased: !!purchase });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to check purchase status' });
+  }
+});
+
+// NEW: Mark a test series as purchased for the current user
+router.post('/:id/purchase', authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const testSeriesId = req.params.id;
+    console.log('Manual test series purchase attempt:', { userId, testSeriesId });
+
+    // Optionally: verify payment here
+    const existing = await prisma.testSeriesPurchase.findFirst({ where: { userId, testSeriesId, status: 'active' } });
+    if (existing) {
+      console.log('Test series already purchased');
+      return res.status(200).json({ success: true, message: 'Already purchased' });
+    }
+
+    console.log('Creating new test series purchase...');
+    const purchase = await prisma.testSeriesPurchase.create({
+      data: { userId, testSeriesId, status: 'active' },
+    });
+    console.log('Test series purchase created:', purchase);
+    res.json({ success: true, purchase });
+  } catch (error) {
+    console.error('Error creating test series purchase:', error);
+    res.status(500).json({ error: 'Failed to mark as purchased' });
+  }
+});
+
 // POST create a new test series (admin only)
 router.post('/', authenticate, async (req, res) => {
   try {
@@ -105,5 +166,36 @@ router.delete('/:id', authenticate, async (req, res) => {
 //     return res.status(500).json({ error: 'Failed to upload image' });
 //   }
 // });
+
+// TEST: Manual test endpoint for debugging
+router.post('/test-purchase/:id', authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const testSeriesId = req.params.id;
+    
+    console.log('Manual test purchase for:', { userId, testSeriesId });
+    
+    // Check if already purchased
+    const existing = await prisma.testSeriesPurchase.findFirst({
+      where: { userId, testSeriesId, status: 'active' }
+    });
+    
+    if (existing) {
+      return res.json({ success: true, message: 'Already purchased', purchase: existing });
+    }
+    
+    // Create purchase
+    const purchase = await prisma.testSeriesPurchase.create({
+      data: { userId, testSeriesId, status: 'active' },
+      include: { testSeries: true }
+    });
+    
+    console.log('Test purchase created:', purchase);
+    res.json({ success: true, purchase });
+  } catch (error) {
+    console.error('Test purchase error:', error);
+    res.status(500).json({ error: 'Failed to create test purchase' });
+  }
+});
 
 export default router; 

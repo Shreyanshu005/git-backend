@@ -98,7 +98,7 @@ router.get('/ebooks/:id', async (req, res) => {
 router.get('/ebooks/:id/download', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = (req.user as any)?.id;
+    const userId = (req.user as any)?.userId;
 
     // Check if user has active subscription
     const subscription = await prisma.digitalLibrarySubscription.findFirst({
@@ -142,7 +142,7 @@ router.get('/ebooks/:id/download', authenticate, async (req, res) => {
 // Check user subscription status
 router.get('/subscription/status', authenticate, async (req, res) => {
   try {
-    const userId = (req.user as any)?.id;
+    const userId = (req.user as any)?.userId;
     
     const subscription = await prisma.digitalLibrarySubscription.findFirst({
       where: {
@@ -174,8 +174,10 @@ router.get('/subscription/status', authenticate, async (req, res) => {
 // Create subscription (simplified - in real app, integrate with payment gateway)
 router.post('/subscription/create', authenticate, async (req, res) => {
   try {
-    const userId = (req.user as any)?.id;
+    const userId = (req.user as any)?.userId;
     const { paymentId } = req.body;
+
+    console.log('🔔 Subscription endpoint called. req.user:', req.user, 'paymentId:', paymentId);
 
     // Check if user already has an active subscription
     const existingSubscription = await prisma.digitalLibrarySubscription.findFirst({
@@ -190,6 +192,7 @@ router.post('/subscription/create', authenticate, async (req, res) => {
     });
 
     if (existingSubscription) {
+      console.log('User already has active subscription:', existingSubscription.id);
       return res.status(400).json({ 
         error: 'Active subscription exists',
         message: 'You already have an active digital library subscription.'
@@ -207,6 +210,8 @@ router.post('/subscription/create', authenticate, async (req, res) => {
       }
     });
 
+    console.log('✅ Subscription created successfully:', subscription.id);
+
     return res.json({
       message: 'Subscription created successfully',
       subscription: {
@@ -223,53 +228,50 @@ router.post('/subscription/create', authenticate, async (req, res) => {
   }
 });
 
-// Admin endpoints for managing e-books - TEMPORARILY DISABLED
-// router.post('/admin/ebooks', authenticate, uploadToS3('digital-library').fields([
-//   { name: 'coverImage', maxCount: 1 },
-//   { name: 'pdfFile', maxCount: 1 }
-// ]), async (req, res) => {
-//   try {
-//     const userId = (req.user as any)?.id;
-//     // Check if user is admin
-//     const user = await prisma.user.findUnique({ where: { id: userId } });
-//     if (!user?.isAdmin) {
-//       return res.status(403).json({ error: 'Admin access required' });
-//     }
-//     const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-//     const { title, subtitle, description, author, category, pages, language } = req.body;
-//     if (!files.coverImage?.[0] || !files.pdfFile?.[0]) {
-//       return res.status(400).json({ error: 'Cover image and PDF file are required' });
-//     }
-//     const coverImagePath = files.coverImage[0].location;
-//     const pdfPath = files.pdfFile[0].location;
-//     const fileSize = `${(files.pdfFile[0].size / (1024 * 1024)).toFixed(1)} MB`;
-//     const ebook = await prisma.eBook.create({
-//       data: {
-//         title,
-//         subtitle,
-//         description,
-//         author,
-//         category,
-//         coverImage: coverImagePath,
-//         pdfUrl: pdfPath,
-//         fileSize,
-//         pages: parseInt(pages),
-//         language: language || 'English'
-//       }
-//     });
-//     return res.json({
-//       message: 'E-book created successfully',
-//       ebook: {
-//         id: ebook.id,
-//         title: ebook.title,
-//         coverImage: ebook.coverImage
-//       }
-//     });
-//   } catch (error) {
-//     console.error('Error creating e-book:', error);
-//     return res.status(500).json({ error: 'Failed to create e-book' });
-//   }
-// });
+// Admin endpoints for managing e-books (simplified without S3)
+router.post('/admin/ebooks', authenticate, async (req, res) => {
+  try {
+    const userId = (req.user as any)?.id;
+    // Check if user is admin
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const { title, subtitle, description, author, category, pages, language, coverImage, pdfUrl, fileSize } = req.body;
+    
+    if (!title || !author || !category) {
+      return res.status(400).json({ error: 'Title, author, and category are required' });
+    }
+    
+    const ebook = await prisma.eBook.create({
+      data: {
+        title,
+        subtitle: subtitle || '',
+        description: description || '',
+        author,
+        category,
+        coverImage: coverImage || '/uploads/default-cover.jpg',
+        pdfUrl: pdfUrl || '/uploads/sample.pdf',
+        fileSize: fileSize || '2.5 MB',
+        pages: parseInt(pages) || 100,
+        language: language || 'English'
+      }
+    });
+    
+    return res.json({
+      message: 'E-book created successfully',
+      ebook: {
+        id: ebook.id,
+        title: ebook.title,
+        coverImage: ebook.coverImage
+      }
+    });
+  } catch (error) {
+    console.error('Error creating e-book:', error);
+    return res.status(500).json({ error: 'Failed to create e-book' });
+  }
+});
 
 // Update e-book - TEMPORARILY DISABLED
 // router.put('/admin/ebooks/:id', authenticate, uploadToS3('digital-library').fields([
@@ -390,6 +392,114 @@ router.get('/admin/ebooks', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Error fetching e-books for admin:', error);
     return res.status(500).json({ error: 'Failed to fetch e-books' });
+  }
+});
+
+// Seed sample e-books (for testing)
+router.post('/seed-ebooks', authenticate, async (req, res) => {
+  try {
+    const userId = (req.user as any)?.id;
+    // Check if user is admin
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const sampleEbooks = [
+      {
+        title: 'UPSC CSE Complete Guide 2024',
+        subtitle: 'Comprehensive preparation strategy and study materials',
+        description: 'A complete guide covering all aspects of UPSC Civil Services Examination including prelims, mains, and interview preparation.',
+        author: 'IAS Academy',
+        category: 'UPSC',
+        coverImage: '/uploads/upsc-guide.jpg',
+        pdfUrl: '/uploads/upsc-complete-guide.pdf',
+        fileSize: '15.2 MB',
+        pages: 450,
+        language: 'English'
+      },
+      {
+        title: 'Indian Polity and Constitution',
+        subtitle: 'Essential concepts for competitive exams',
+        description: 'Comprehensive coverage of Indian Constitution, political system, and governance structures.',
+        author: 'Constitutional Expert',
+        category: 'General Studies',
+        coverImage: '/uploads/polity.jpg',
+        pdfUrl: '/uploads/indian-polity.pdf',
+        fileSize: '8.7 MB',
+        pages: 320,
+        language: 'English'
+      },
+      {
+        title: 'Indian Economy: Concepts and Current Affairs',
+        subtitle: 'Economic theory and contemporary issues',
+        description: 'Detailed analysis of Indian economy, economic policies, and current economic developments.',
+        author: 'Economic Analyst',
+        category: 'General Studies',
+        coverImage: '/uploads/economy.jpg',
+        pdfUrl: '/uploads/indian-economy.pdf',
+        fileSize: '12.1 MB',
+        pages: 380,
+        language: 'English'
+      },
+      {
+        title: 'Geography of India and World',
+        subtitle: 'Physical and human geography',
+        description: 'Comprehensive coverage of Indian and world geography including physical, economic, and human geography.',
+        author: 'Geography Expert',
+        category: 'General Studies',
+        coverImage: '/uploads/geography.jpg',
+        pdfUrl: '/uploads/geography-india-world.pdf',
+        fileSize: '10.5 MB',
+        pages: 290,
+        language: 'English'
+      },
+      {
+        title: 'BPSC Preparation Strategy',
+        subtitle: 'Complete guide for Bihar Public Service Commission',
+        description: 'Strategic approach to BPSC examination with subject-wise preparation tips and previous year questions.',
+        author: 'BPSC Expert',
+        category: 'BPSC',
+        coverImage: '/uploads/bpsc.jpg',
+        pdfUrl: '/uploads/bpsc-strategy.pdf',
+        fileSize: '9.3 MB',
+        pages: 280,
+        language: 'English'
+      },
+      {
+        title: 'UPPCS Study Material',
+        subtitle: 'Uttar Pradesh Public Service Commission preparation',
+        description: 'Comprehensive study material for UPPCS examination covering all relevant subjects and topics.',
+        author: 'UPPCS Expert',
+        category: 'UPPCS',
+        coverImage: '/uploads/uppcs.jpg',
+        pdfUrl: '/uploads/uppcs-study-material.pdf',
+        fileSize: '11.8 MB',
+        pages: 350,
+        language: 'English'
+      }
+    ];
+
+    const createdEbooks = [];
+    for (const ebookData of sampleEbooks) {
+      const ebook = await prisma.eBook.create({
+        data: ebookData
+      });
+      createdEbooks.push(ebook);
+    }
+
+    return res.json({
+      message: 'Sample e-books created successfully',
+      count: createdEbooks.length,
+      ebooks: createdEbooks.map(ebook => ({
+        id: ebook.id,
+        title: ebook.title,
+        category: ebook.category
+      }))
+    });
+  } catch (error) {
+    console.error('Error seeding e-books:', error);
+    return res.status(500).json({ error: 'Failed to seed e-books' });
   }
 });
 

@@ -21,8 +21,9 @@ model User {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  purchases     Purchase[]
+  coursePurchases CoursePurchase[]
   librarySubscriptions DigitalLibrarySubscription[]
+  testSeriesPurchases TestSeriesPurchase[]
 
   @@map("users")
 }
@@ -40,7 +41,7 @@ model Course {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  purchases     Purchase[]
+  coursePurchases CoursePurchase[]
 }
 
 model TestSeries {
@@ -55,9 +56,21 @@ model TestSeries {
   discount      Int
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  testSeriesPurchases TestSeriesPurchase[]
 }
 
-model Purchase {
+model TestSeriesPurchase {
+  id           String   @id @default(uuid())
+  user         User     @relation(fields: [userId], references: [id])
+  userId       String
+  testSeries   TestSeries @relation(fields: [testSeriesId], references: [id])
+  testSeriesId String
+  purchasedAt  DateTime @default(now())
+  status       String   // e.g. 'active', 'cancelled', 'refunded'
+}
+
+model CoursePurchase {
   id           String   @id @default(uuid())
   user         User     @relation(fields: [userId], references: [id])
   userId       String

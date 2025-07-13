@@ -230,7 +230,11 @@ export const getProfile = async (req: Request, res: Response) => {
         }
 
         const user = await prisma.user.findUnique({
-            where: { id: userId }
+            where: { id: userId },
+            include: {
+                coursePurchases: true,
+                testSeriesPurchases: true
+            }
         });
 
         if (!user) {
@@ -244,7 +248,9 @@ export const getProfile = async (req: Request, res: Response) => {
                 name: user.name,
                 mobileNumber: user.mobileNumber,
                 isVerified: user.isVerified,
-                isAdmin: user.isAdmin
+                isAdmin: user.isAdmin,
+                coursePurchases: user.coursePurchases,
+                testSeriesPurchases: user.testSeriesPurchases
             }
         });
     } catch (error) {

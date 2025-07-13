@@ -17,6 +17,52 @@ router.get('/', async (_req, res) => {
   }
 });
 
+// NEW: Get all courses purchased by the current user
+router.get('/purchased', authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const purchases = await prisma.coursePurchase.findMany({
+      where: { userId, status: 'active' },
+      include: { course: true },
+    });
+    const courses = purchases.map((p) => p.course);
+    res.json({ courses });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch purchased courses' });
+  }
+});
+
+// NEW: Check if the current user has purchased a specific course
+router.get('/:id/purchased', authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const courseId = req.params.id;
+    const purchase = await prisma.coursePurchase.findFirst({
+      where: { userId, courseId, status: 'active' },
+    });
+    res.json({ purchased: !!purchase });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to check purchase status' });
+  }
+});
+
+// NEW: Mark a course as purchased for the current user
+router.post('/:id/purchase', authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const courseId = req.params.id;
+    // Optionally: verify payment here
+    const existing = await prisma.coursePurchase.findFirst({ where: { userId, courseId, status: 'active' } });
+    if (existing) return res.status(200).json({ success: true, message: 'Already purchased' });
+    await prisma.coursePurchase.create({
+      data: { userId, courseId, status: 'active' },
+    });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to mark as purchased' });
+  }
+});
+
 // POST create a new course (admin only)
 router.post('/', authenticate, async (req, res) => {
   try {
