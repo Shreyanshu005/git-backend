@@ -22,6 +22,7 @@ model User {
   updatedAt     DateTime @updatedAt @map("updated_at")
 
   purchases     Purchase[]
+  librarySubscriptions DigitalLibrarySubscription[]
 
   @@map("users")
 }
@@ -80,4 +81,39 @@ model DailyPracticeQuestion {
   date      DateTime
   pdfUrl    String
   createdAt DateTime @default(now())
+}
+
+model EBook {
+  id          String   @id @default(uuid())
+  title       String
+  subtitle    String
+  description String
+  author      String
+  category    String   // e.g., 'UPSC', 'BPSC', 'UPPCS', 'General Studies', 'Optional Subjects'
+  coverImage  String
+  pdfUrl      String
+  fileSize    String   // e.g., "2.5 MB"
+  pages       Int
+  language    String   @default("English")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("ebooks")
+}
+
+model DigitalLibrarySubscription {
+  id           String   @id @default(uuid())
+  user         User     @relation(fields: [userId], references: [id])
+  userId       String
+  subscriptionType String @default("lifetime") // "lifetime", "monthly", "yearly"
+  amount       Int      @default(499) // Amount in paise (49900 for ₹499)
+  status       String   @default("active") // "active", "expired", "cancelled"
+  purchasedAt  DateTime @default(now())
+  expiresAt    DateTime? // null for lifetime subscriptions
+  paymentId    String?  // For payment gateway reference
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("digital_library_subscriptions")
 } 

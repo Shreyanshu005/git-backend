@@ -6,10 +6,12 @@ import authRoutes from './routes/auth';
 import { authenticate } from './middlewares/auth';
 import cors from 'cors';
 import courseRoutes from './routes/courses';
-import path from 'path';
+
 import testSeriesRoutes from './routes/testseries';
 import currentAffairsRoutes from './routes/currentAffairs';
 import dpqRoutes from './routes/dpq';
+import digitalLibraryRoutes from './routes/digitalLibrary';
+import paymentsRoutes from './routes/payments';
 
 // Load environment variables
 dotenv.config();
@@ -46,8 +48,7 @@ app.use((req, _res, next) => {
 
 app.use(express.json());
 
-// Serve uploads directory
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+// S3 is used for file storage, no need for local static serving
 
 // Health check endpoint
 app.get('/api/health', (_req, res) => {
@@ -65,6 +66,8 @@ app.use('/api/courses', courseRoutes);
 app.use('/api/testseries', testSeriesRoutes);
 app.use('/api/current-affairs', currentAffairsRoutes);
 app.use('/api/dpq', dpqRoutes);
+app.use('/api/digital-library', digitalLibraryRoutes);
+app.use('/api/payments', paymentsRoutes);
 
 // Protected route example
 app.get('/api/protected', authenticate, (req, res) => {

@@ -2,23 +2,10 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authenticate } from '../middlewares/auth';
-import multer from 'multer';
-import path from 'path';
+// import { uploadToS3, deleteFromS3 } from '../utils/s3';
 
 const router = Router();
 const prisma = new PrismaClient();
-
-// Multer setup for image uploads
-const storage = multer.diskStorage({
-  destination: function (_req, _file, cb) {
-    cb(null, path.join(__dirname, '../../uploads'));
-  },
-  filename: function (_req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + '-' + file.originalname);
-  }
-});
-const upload = multer({ storage });
 
 // GET all test series
 router.get('/', async (_req, res) => {
@@ -57,6 +44,17 @@ router.put('/:id', authenticate, async (req, res) => {
     }
     const { id } = req.params;
     const { title, subtitle, image, startDate, features, price, originalPrice, discount } = req.body;
+    // If image is being updated, delete old image from S3
+    // if (image) {
+    //   const existingTestSeries = await prisma.testSeries.findUnique({ where: { id } });
+    //   if (existingTestSeries && existingTestSeries.image && existingTestSeries.image !== image) {
+    //     try {
+    //       await deleteFromS3(existingTestSeries.image);
+    //     } catch (s3Error) {
+    //       console.error('S3 delete error:', s3Error);
+    //     }
+    //   }
+    // }
     const testSeries = await prisma.testSeries.update({
       where: { id },
       data: { title, subtitle, image, startDate, features, price, originalPrice, discount },
@@ -74,30 +72,38 @@ router.delete('/:id', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Admin access required' });
     }
     const { id } = req.params;
-    const testSeries = await prisma.testSeries.delete({
-      where: { id },
-    });
+    // Get test series to delete image from S3
+    const testSeries = await prisma.testSeries.findUnique({ where: { id } });
+    // if (testSeries && testSeries.image) {
+    //   try {
+    //     await deleteFromS3(testSeries.image);
+    //   } catch (s3Error) {
+    //     console.error('S3 delete error:', s3Error);
+    //     // Continue with database deletion even if S3 delete fails
+    //   }
+    // }
+    await prisma.testSeries.delete({ where: { id } });
     return res.json({ success: true, testSeries });
   } catch (error) {
     return res.status(500).json({ error: 'Failed to delete test series' });
   }
 });
 
-// Image upload endpoint (admin only)
-router.post('/upload-image', authenticate, upload.single('image'), async (req, res) => {
-  try {
-    if (!req.user || !req.user.isAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-    const file = req.file;
-    if (!file) {
-      return res.status(400).json({ error: 'No file uploaded' });
-    }
-    const filePath = `/uploads/${file.filename}`;
-    return res.json({ success: true, path: filePath });
-  } catch (error) {
-    return res.status(500).json({ error: 'Failed to upload image' });
-  }
-});
+// Image upload endpoint (admin only) - TEMPORARILY DISABLED
+// router.post('/upload-image', authenticate, uploadToS3('testseries-thumbnails').single('image'), async (req, res) => {
+//   try {
+//     if (!req.user || !req.user.isAdmin) {
+//       return res.status(403).json({ error: 'Admin access required' });
+//     }
+//     const file = req.file as any;
+//     if (!file) {
+//       return res.status(400).json({ error: 'No file uploaded' });
+//     }
+//     // Return the S3 URL
+//     return res.json({ success: true, path: file.location });
+//   } catch (error) {
+//     return res.status(500).json({ error: 'Failed to upload image' });
+//   }
+// });
 
 export default router; 

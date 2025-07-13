@@ -1,3 +1,7 @@
+// DEPRECATED: Do not use. Use authenticate from middlewares/auth.ts for all protected routes.
+// This file is kept for reference only and should not be used.
+
+/*
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { CustomRequest, CustomError } from '../types';
@@ -40,3 +44,4 @@ export const verifyToken = async (req: Request, _res: Response, next: NextFuncti
         next(new CustomError('Invalid token', 401));
     }
 }; 
+*/ 
