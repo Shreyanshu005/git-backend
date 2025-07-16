@@ -27,7 +27,10 @@ const io = new Server(httpServer, {
 
 // CORS configuration - Alternative more permissive setup
 app.use(cors({
-  origin: true, // Allow all origins temporarily
+  origin: [
+    'https://www.maheshanias.com',
+    'http://localhost:3000'
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
