@@ -40,7 +40,7 @@ app.options('*', cors());
 
 // Add CORS debugging middleware
 app.use((req, _res, next) => {
-  console.log('Request origin is:', req.headers.origin);
+  console.log('Request origin:', req.headers.origin);
   console.log('Request method:', req.method);
   console.log('Request headers:', req.headers);
   next();
