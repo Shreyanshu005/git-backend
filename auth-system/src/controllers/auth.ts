@@ -115,7 +115,7 @@ export const login = async (req: Request, res: Response) => {
 export const verifyOTP = async (req: Request, res: Response) => {
     try {
         await cleanupUnverifiedUsers();
-        console.log('OTP verification request body:', req.body);
+        console.log('OTP verification request body is:', req.body);
         
         const { mobileNumber, otp } = req.body;
         
