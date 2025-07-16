@@ -6,11 +6,25 @@ import { uploadToS3, deleteFromS3 } from '../utils/s3';
 const router = Router();
 const prisma = new PrismaClient();
 
-// GET all current affairs
-router.get('/', async (_req, res) => {
+// GET all current affairs (with pagination)
+router.get('/', async (req, res) => {
   try {
-    const affairs = await prisma.currentAffair.findMany({ orderBy: { date: 'desc' } });
-    res.json(affairs);
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const skip = (page - 1) * limit;
+    const [affairs, total] = await Promise.all([
+      prisma.currentAffair.findMany({ orderBy: { date: 'desc' }, skip, take: limit }),
+      prisma.currentAffair.count()
+    ]);
+    res.json({
+      affairs,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch current affairs' });
   }
@@ -76,6 +90,23 @@ router.delete('/:id', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Delete error:', error);
     return res.status(500).json({ error: 'Failed to delete current affair PDF' });
+  }
+});
+
+// GET presigned URL for a current affair PDF (authenticated)
+router.get('/:id/presigned-url', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const affair = await prisma.currentAffair.findUnique({ where: { id } });
+    if (!affair || !affair.pdfUrl) {
+      return res.status(404).json({ error: 'Current affair not found' });
+    }
+    // Optionally: check user permissions here
+    const url = await require('../utils/s3').generatePresignedUrl(affair.pdfUrl, 300); // 5 min expiry
+    return res.json({ url });
+  } catch (error) {
+    console.error('Presigned URL error:', error);
+    return res.status(500).json({ error: 'Failed to generate presigned URL' });
   }
 });
 

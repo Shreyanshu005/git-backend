@@ -6,11 +6,25 @@ import { uploadToS3, deleteFromS3 } from '../utils/s3';
 const router = Router();
 const prisma = new PrismaClient();
 
-// GET all DPQ PDFs
-router.get('/', async (_req, res) => {
+// GET all DPQ PDFs (with pagination)
+router.get('/', async (req, res) => {
   try {
-    const dpqs = await prisma.dailyPracticeQuestion.findMany({ orderBy: { date: 'desc' } });
-    res.json(dpqs);
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const skip = (page - 1) * limit;
+    const [dpqs, total] = await Promise.all([
+      prisma.dailyPracticeQuestion.findMany({ orderBy: { date: 'desc' }, skip, take: limit }),
+      prisma.dailyPracticeQuestion.count()
+    ]);
+    res.json({
+      dpqs,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch DPQ PDFs' });
   }
@@ -72,6 +86,23 @@ router.delete('/:id', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Delete error:', error);
     return res.status(500).json({ error: 'Failed to delete DPQ PDF' });
+  }
+});
+
+// GET presigned URL for a DPQ PDF (authenticated)
+router.get('/:id/presigned-url', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const dpq = await prisma.dailyPracticeQuestion.findUnique({ where: { id } });
+    if (!dpq || !dpq.pdfUrl) {
+      return res.status(404).json({ error: 'DPQ not found' });
+    }
+    // Optionally: check user permissions here
+    const url = await require('../utils/s3').generatePresignedUrl(dpq.pdfUrl, 300); // 5 min expiry
+    return res.json({ url });
+  } catch (error) {
+    console.error('Presigned URL error:', error);
+    return res.status(500).json({ error: 'Failed to generate presigned URL' });
   }
 });
 

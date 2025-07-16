@@ -78,18 +78,16 @@ router.post('/:id/purchase', authenticate, async (req, res) => {
   }
 });
 
-// POST create a new test series (admin only, with image upload)
-router.post('/', authenticate, uploadToS3('testseries-thumbnails').single('image'), async (req, res) => {
+// POST create a new test series (admin only, with image URL)
+router.post('/', authenticate, async (req, res) => {
   try {
     if (!req.user || !req.user.isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
-    const { title, subtitle, startDate, features, price, originalPrice, discount } = req.body;
-    const file = req.file as any;
-    if (!title || !subtitle || !file || !startDate || !features || !price || !originalPrice || !discount) {
+    const { title, subtitle, image, startDate, features, price, originalPrice, discount } = req.body;
+    if (!title || !subtitle || !image || typeof image !== 'string' || !image.startsWith('http') || !startDate || !features || !price || !originalPrice || !discount) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
-    const image = file.location;
     const testSeries = await prisma.testSeries.create({
       data: {
         title,
