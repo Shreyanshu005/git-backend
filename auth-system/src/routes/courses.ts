@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authenticate } from '../middlewares/auth';
-// import { uploadToS3, deleteFromS3 } from '../utils/s3';
+import { uploadToS3, deleteFromS3 } from '../utils/s3';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -63,17 +63,27 @@ router.post('/:id/purchase', authenticate, async (req, res) => {
   }
 });
 
-// POST create a new course (admin only)
-router.post('/', authenticate, async (req, res) => {
+// POST create a new course (admin only, with image upload)
+router.post('/', authenticate, uploadToS3('course-thumbnails').single('image'), async (req, res) => {
   try {
-    console.log('req.user:', req.user);
     if (!req.user || !req.user.isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
-    const { title, subtitle, image, startDate, features, price, originalPrice, discount } = req.body;
-    if (!title || !subtitle || !image || !startDate || !features || !price || !originalPrice || !discount) {
+    const { title, subtitle, startDate, price, originalPrice, discount } = req.body;
+    let { features } = req.body;
+    const file = req.file as any;
+    // Normalize features to array
+    if (typeof features === 'string') {
+      features = features.split(',').map(f => f.trim()).filter(f => f);
+    } else if (Array.isArray(features)) {
+      features = features.map(f => f.trim()).filter(f => f);
+    } else {
+      features = [];
+    }
+    if (!title || !subtitle || !file || !startDate || !features.length || !price || !originalPrice || !discount) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
+    const image = file.location;
     const course = await prisma.course.create({
       data: {
         title,
@@ -102,14 +112,14 @@ router.delete('/:id', authenticate, async (req, res) => {
     
     // Get course to delete image from S3
     const course = await prisma.course.findUnique({ where: { id } });
-    // if (course && course.image) {
-    //   try {
-    //     await deleteFromS3(course.image);
-    //   } catch (s3Error) {
-    //     console.error('S3 delete error:', s3Error);
-    //     // Continue with database deletion even if S3 delete fails
-    //   }
-    // }
+    if (course && course.image) {
+      try {
+        await deleteFromS3(course.image);
+      } catch (s3Error) {
+        console.error('S3 delete error:', s3Error);
+        // Continue with database deletion even if S3 delete fails
+      }
+    }
     
     await prisma.course.delete({ where: { id } });
     res.json({ success: true, course });
@@ -128,16 +138,16 @@ router.put('/:id', authenticate, async (req, res) => {
     const { title, subtitle, image, startDate, features, price, originalPrice, discount } = req.body;
     
     // If image is being updated, delete old image from S3
-    // if (image) {
-    //   const existingCourse = await prisma.course.findUnique({ where: { id } });
-    //   if (existingCourse && existingCourse.image && existingCourse.image !== image) {
-    //     try {
-    //       await deleteFromS3(existingCourse.image);
-    //     } catch (s3Error) {
-    //       console.error('S3 delete error:', s3Error);
-    //     }
-    //   }
-    // }
+    if (image) {
+      const existingCourse = await prisma.course.findUnique({ where: { id } });
+      if (existingCourse && existingCourse.image && existingCourse.image !== image) {
+        try {
+          await deleteFromS3(existingCourse.image);
+        } catch (s3Error) {
+          console.error('S3 delete error:', s3Error);
+        }
+      }
+    }
     
     const course = await prisma.course.update({
       where: { id },
@@ -149,24 +159,22 @@ router.put('/:id', authenticate, async (req, res) => {
   }
 });
 
-// Image upload endpoint (admin only) - TEMPORARILY DISABLED
-// router.post('/upload-image', authenticate, uploadToS3('course-thumbnails').single('image'), async (req, res) => {
-//   try {
-//     if (!req.user || !req.user.isAdmin) {
-//       return res.status(403).json({ error: 'Admin access required' });
-//     }
-    
-//     const file = req.file as any;
-//     if (!file) {
-//       return res.status(400).json({ error: 'No file uploaded' });
-//     }
-    
-//     // Return the S3 URL
-//     res.json({ success: true, path: file.location });
-//   } catch (error) {
-//     console.error('Upload error:', error);
-//     res.status(500).json({ error: 'Failed to upload image' });
-//   }
-// });
+// Image upload endpoint (admin only)
+router.post('/upload-image', authenticate, uploadToS3('course-thumbnails').single('image'), async (req, res) => {
+  try {
+    if (!req.user || !req.user.isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    const file = req.file as any;
+    if (!file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    // Return the S3 URL
+    res.json({ success: true, path: file.location });
+  } catch (error) {
+    console.error('Upload error:', error);
+    res.status(500).json({ error: 'Failed to upload image' });
+  }
+});
 
 export default router; 

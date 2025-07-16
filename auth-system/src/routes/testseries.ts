@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authenticate } from '../middlewares/auth';
-// import { uploadToS3, deleteFromS3 } from '../utils/s3';
+import { uploadToS3, deleteFromS3 } from '../utils/s3';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -78,22 +78,33 @@ router.post('/:id/purchase', authenticate, async (req, res) => {
   }
 });
 
-// POST create a new test series (admin only)
-router.post('/', authenticate, async (req, res) => {
+// POST create a new test series (admin only, with image upload)
+router.post('/', authenticate, uploadToS3('testseries-thumbnails').single('image'), async (req, res) => {
   try {
     if (!req.user || !req.user.isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
-    const { title, subtitle, image, startDate, features, price, originalPrice, discount } = req.body;
-    if (!title || !subtitle || !image || !startDate || !features || !price || !originalPrice || !discount) {
+    const { title, subtitle, startDate, features, price, originalPrice, discount } = req.body;
+    const file = req.file as any;
+    if (!title || !subtitle || !file || !startDate || !features || !price || !originalPrice || !discount) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
+    const image = file.location;
     const testSeries = await prisma.testSeries.create({
-      data: { title, subtitle, image, startDate, features, price, originalPrice, discount }
+      data: {
+        title,
+        subtitle,
+        image,
+        startDate,
+        features,
+        price,
+        originalPrice,
+        discount,
+      }
     });
-    return res.status(201).json(testSeries);
+    res.status(201).json(testSeries);
   } catch (error) {
-    return res.status(500).json({ error: 'Failed to create test series' });
+    res.status(500).json({ error: 'Failed to create test series' });
   }
 });
 
@@ -106,16 +117,16 @@ router.put('/:id', authenticate, async (req, res) => {
     const { id } = req.params;
     const { title, subtitle, image, startDate, features, price, originalPrice, discount } = req.body;
     // If image is being updated, delete old image from S3
-    // if (image) {
-    //   const existingTestSeries = await prisma.testSeries.findUnique({ where: { id } });
-    //   if (existingTestSeries && existingTestSeries.image && existingTestSeries.image !== image) {
-    //     try {
-    //       await deleteFromS3(existingTestSeries.image);
-    //     } catch (s3Error) {
-    //       console.error('S3 delete error:', s3Error);
-    //     }
-    //   }
-    // }
+    if (image) {
+      const existingTestSeries = await prisma.testSeries.findUnique({ where: { id } });
+      if (existingTestSeries && existingTestSeries.image && existingTestSeries.image !== image) {
+        try {
+          await deleteFromS3(existingTestSeries.image);
+        } catch (s3Error) {
+          console.error('S3 delete error:', s3Error);
+        }
+      }
+    }
     const testSeries = await prisma.testSeries.update({
       where: { id },
       data: { title, subtitle, image, startDate, features, price, originalPrice, discount },
@@ -135,14 +146,14 @@ router.delete('/:id', authenticate, async (req, res) => {
     const { id } = req.params;
     // Get test series to delete image from S3
     const testSeries = await prisma.testSeries.findUnique({ where: { id } });
-    // if (testSeries && testSeries.image) {
-    //   try {
-    //     await deleteFromS3(testSeries.image);
-    //   } catch (s3Error) {
-    //     console.error('S3 delete error:', s3Error);
-    //     // Continue with database deletion even if S3 delete fails
-    //   }
-    // }
+    if (testSeries && testSeries.image) {
+      try {
+        await deleteFromS3(testSeries.image);
+      } catch (s3Error) {
+        console.error('S3 delete error:', s3Error);
+        // Continue with database deletion even if S3 delete fails
+      }
+    }
     await prisma.testSeries.delete({ where: { id } });
     return res.json({ success: true, testSeries });
   } catch (error) {
@@ -150,22 +161,22 @@ router.delete('/:id', authenticate, async (req, res) => {
   }
 });
 
-// Image upload endpoint (admin only) - TEMPORARILY DISABLED
-// router.post('/upload-image', authenticate, uploadToS3('testseries-thumbnails').single('image'), async (req, res) => {
-//   try {
-//     if (!req.user || !req.user.isAdmin) {
-//       return res.status(403).json({ error: 'Admin access required' });
-//     }
-//     const file = req.file as any;
-//     if (!file) {
-//       return res.status(400).json({ error: 'No file uploaded' });
-//     }
-//     // Return the S3 URL
-//     return res.json({ success: true, path: file.location });
-//   } catch (error) {
-//     return res.status(500).json({ error: 'Failed to upload image' });
-//   }
-// });
+// Image upload endpoint (admin only)
+router.post('/upload-image', authenticate, uploadToS3('testseries-thumbnails').single('image'), async (req, res) => {
+  try {
+    if (!req.user || !req.user.isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    const file = req.file as any;
+    if (!file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    // Return the S3 URL
+    return res.json({ success: true, path: file.location });
+  } catch (error) {
+    return res.status(500).json({ error: 'Failed to upload image' });
+  }
+});
 
 // TEST: Manual test endpoint for debugging
 router.post('/test-purchase/:id', authenticate, async (req, res) => {
