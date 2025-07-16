@@ -44,7 +44,7 @@ router.post('/create-session', authenticate, async (req, res) => {
     }
     if (type === 'library') {
       orderId = `DLIB_${Date.now()}`;
-      orderAmount = 499 * 100; // Convert to paise
+      orderAmount = 499; // Send as rupees
       orderNote = 'Digital Library Lifetime Access';
       itemTitle = 'Digital Library';
     } else if (type === 'course') {
@@ -53,7 +53,7 @@ router.post('/create-session', authenticate, async (req, res) => {
       // Sanitize itemId for orderId (max 8 chars, fallback to random if missing)
       const safeId = (typeof itemId === 'string' && itemId.length > 0) ? itemId.replace(/[^a-zA-Z0-9]/g, '').slice(0,8) : Math.random().toString(36).substring(2,10);
       orderId = `ORDER_COURSE_${safeId}_${Date.now()}`;
-      orderAmount = course.price * 100; // Convert to paise
+      orderAmount = course.price; // Send as rupees
       orderNote = `Purchase of course: ${course.title}`;
       itemTitle = course.title;
     } else if (type === 'testseries') {
@@ -62,7 +62,7 @@ router.post('/create-session', authenticate, async (req, res) => {
       // Sanitize itemId for orderId (max 8 chars, fallback to random if missing)
       const safeId = (typeof itemId === 'string' && itemId.length > 0) ? itemId.replace(/[^a-zA-Z0-9]/g, '').slice(0,8) : Math.random().toString(36).substring(2,10);
       orderId = `ORDER_TESTSERIES_${safeId}_${Date.now()}`;
-      orderAmount = testSeries.price * 100; // Convert to paise
+      orderAmount = testSeries.price; // Send as rupees
       orderNote = `Purchase of test series: ${testSeries.title}`;
       itemTitle = testSeries.title;
     } else {

@@ -63,15 +63,14 @@ router.post('/:id/purchase', authenticate, async (req, res) => {
   }
 });
 
-// POST create a new course (admin only, with image upload)
-router.post('/', authenticate, uploadToS3('course-thumbnails').single('image'), async (req, res) => {
+// POST create a new course (admin only, with image URL)
+router.post('/', authenticate, async (req, res) => {
   try {
     if (!req.user || !req.user.isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
-    const { title, subtitle, startDate, price, originalPrice, discount } = req.body;
+    const { title, subtitle, image, startDate, price, originalPrice, discount } = req.body;
     let { features } = req.body;
-    const file = req.file as any;
     // Normalize features to array
     if (typeof features === 'string') {
       features = features.split(',').map(f => f.trim()).filter(f => f);
@@ -80,10 +79,9 @@ router.post('/', authenticate, uploadToS3('course-thumbnails').single('image'), 
     } else {
       features = [];
     }
-    if (!title || !subtitle || !file || !startDate || !features.length || !price || !originalPrice || !discount) {
+    if (!title || !subtitle || !image || typeof image !== 'string' || !image.startsWith('http') || !startDate || !features.length || !price || !originalPrice || !discount) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
-    const image = file.location;
     const course = await prisma.course.create({
       data: {
         title,
