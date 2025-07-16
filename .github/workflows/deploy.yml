@@ -13,6 +13,13 @@ jobs:
       - name: 📦 Checkout code
         uses: actions/checkout@v3
 
+      - name: 🐛 Debug EC2_HOST secret value
+        run: |
+          echo "EC2_HOST: ${{ secrets.EC2_HOST }}"
+          echo "EC2_USER: ${{ secrets.EC2_USER }}"
+          echo "Trying to ping the EC2 host..."
+          ping -c 3 ${{ secrets.EC2_HOST }} || echo "Ping failed – host might be unreachable or DNS failed"
+
       - name: 🔐 Set up SSH connection
         run: |
           mkdir -p ~/.ssh
@@ -22,7 +29,7 @@ jobs:
 
       - name: 🚀 Deploy to EC2 & Restart Backend
         run: |
-          ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+          ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
             cd ~/gitbackend/auth-system
             git pull origin main
             bun install
