@@ -18,6 +18,7 @@ dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
+httpServer.timeout = 10 * 60 * 1000; // 10 minutes timeout for large uploads
 const io = new Server(httpServer, {
   cors: {
     origin: "*",
@@ -29,7 +30,7 @@ const io = new Server(httpServer, {
 app.use(cors({
   origin: [
     'https://www.maheshanias.com',
-    'http://localhost:3000'
+    'http://localhost:3001'
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
