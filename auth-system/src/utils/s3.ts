@@ -1,4 +1,4 @@
-import { S3Client, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import multer from 'multer';
 import multerS3 from 'multer-s3';
@@ -45,7 +45,7 @@ export const uploadToS3 = (folder: string) => {
       }
       cb(null, true);
     },
-    limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
+    // limits: { fileSize: 100 * 1024 * 1024 }, // Remove file size limit
   });
 };
 
@@ -84,6 +84,17 @@ export const generatePresignedUrl = async (fileUrl: string, expiresIn = 3600): P
     console.error('Error generating presigned URL:', error);
     throw error;
   }
+};
+
+// Generate a pre-signed S3 upload URL
+export const generatePresignedUploadUrl = async (key: string, contentType: string, expiresIn = 600) => {
+  const command = new PutObjectCommand({
+    Bucket: BUCKET_NAME,
+    Key: key,
+    ContentType: contentType,
+    // Do not set any checksum or x-amz-sdk-checksum-algorithm
+  });
+  return getSignedUrl(s3Client, command, { expiresIn });
 };
 
 // Get public URL for file

@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authenticate } from '../middlewares/auth';
-import { uploadToS3, deleteFromS3 } from '../utils/s3';
+import { uploadToS3, deleteFromS3, generatePresignedUploadUrl, generatePresignedUrl } from '../utils/s3';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -172,6 +172,39 @@ router.post('/upload-image', authenticate, uploadToS3('course-thumbnails').singl
   } catch (error) {
     console.error('Upload error:', error);
     res.status(500).json({ error: 'Failed to upload image' });
+  }
+});
+
+// Generate a presigned S3 upload URL for course thumbnails
+router.post('/presigned-upload', authenticate, async (req, res) => {
+  try {
+    if (!req.user || !req.user.isAdmin) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    const { fileName, contentType } = req.body;
+    if (!fileName || !contentType) {
+      return res.status(400).json({ error: 'fileName and contentType are required' });
+    }
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const key = `course-thumbnails/${uniqueSuffix}-${fileName}`;
+    const url = await generatePresignedUploadUrl(key, contentType);
+    res.json({ url, key });
+  } catch (error) {
+    console.error('Error generating presigned upload URL:', error);
+    res.status(500).json({ error: 'Failed to generate presigned upload URL' });
+  }
+});
+
+// GET /api/courses/:id/image-url - returns a presigned S3 GET URL for the course image
+router.get('/:id/image-url', authenticate, async (req, res) => {
+  try {
+    const course = await prisma.course.findUnique({ where: { id: req.params.id } });
+    if (!course || !course.image) return res.status(404).json({ error: 'Not found' });
+    // course.image is the S3 key
+    const url = await generatePresignedUrl(course.image, 300); // 5 minutes
+    res.json({ url });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to generate image URL' });
   }
 });
 
