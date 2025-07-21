@@ -196,7 +196,7 @@ router.post('/presigned-upload', authenticate, async (req, res) => {
 });
 
 // GET /api/courses/:id/image-url - returns a presigned S3 GET URL for the course image
-router.get('/:id/image-url', authenticate, async (req, res) => {
+router.get('/:id/image-url', async (req, res) => {
   try {
     const course = await prisma.course.findUnique({ where: { id: req.params.id } });
     if (!course || !course.image) return res.status(404).json({ error: 'Not found' });

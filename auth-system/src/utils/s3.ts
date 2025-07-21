@@ -69,16 +69,18 @@ export const deleteFromS3 = async (fileUrl: string): Promise<void> => {
 };
 
 // Generate presigned URL for private files (if needed)
-export const generatePresignedUrl = async (fileUrl: string, expiresIn = 3600): Promise<string> => {
+export const generatePresignedUrl = async (fileUrlOrKey: string, expiresIn = 3600): Promise<string> => {
   try {
-    const url = new URL(fileUrl);
-    const key = url.pathname.substring(1);
-    
+    let key = fileUrlOrKey;
+    // If it's a full URL, extract the key
+    if (fileUrlOrKey.startsWith('http')) {
+      const url = new URL(fileUrlOrKey);
+      key = url.pathname.substring(1);
+    }
     const command = new GetObjectCommand({
       Bucket: BUCKET_NAME,
       Key: key,
     });
-    
     return await getSignedUrl(s3Client, command, { expiresIn });
   } catch (error) {
     console.error('Error generating presigned URL:', error);
