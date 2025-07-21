@@ -79,7 +79,7 @@ router.post('/', authenticate, async (req, res) => {
     } else {
       features = [];
     }
-    if (!title || !subtitle || !image || typeof image !== 'string' || !image.startsWith('http') || !startDate || !features.length || !price || !originalPrice || !discount) {
+    if (!title || !subtitle || !image || typeof image !== 'string' || (!image.startsWith('http') && !image.startsWith('course-thumbnails/')) || !startDate || !features.length || !price || !originalPrice || !discount) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
     const course = await prisma.course.create({
