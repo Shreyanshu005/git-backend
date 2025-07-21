@@ -36,23 +36,20 @@ router.post('/upload', authenticate, uploadToS3('current-affairs').single('pdf')
     if (!req.user || !req.user.isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
-    
     const file = req.file as any;
     const { title, date } = req.body;
-    
     if (!file || !title || !date) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
-    
-    // Store the S3 URL in database
+    // Save only the S3 key in the database
+    const key = file.key || (file.location ? new URL(file.location).pathname.substring(1) : null);
     const affair = await prisma.currentAffair.create({
       data: {
         title,
         date: new Date(date),
-        pdfUrl: file.location, // S3 URL
+        pdfUrl: key, // Save only the key
       }
     });
-    
     return res.status(201).json(affair);
   } catch (error) {
     console.error('Upload error:', error);
