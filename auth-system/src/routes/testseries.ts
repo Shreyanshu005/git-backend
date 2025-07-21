@@ -13,7 +13,7 @@ router.get('/', async (_req, res) => {
     const testseries = await prisma.testSeries.findMany();
     res.json(testseries);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch test series' });
+    res.status(500).json({ error: 'Sorry, we could not load the test series. Please try again later.' });
   }
 });
 
@@ -34,7 +34,7 @@ router.get('/purchased', authenticate, async (req, res) => {
     res.json({ testSeries });
   } catch (error) {
     console.error('Error fetching purchased test series:', error);
-    res.status(500).json({ error: 'Failed to fetch purchased test series' });
+    res.status(500).json({ error: 'Sorry, we could not load your purchased test series. Please try again later.' });
   }
 });
 
@@ -48,7 +48,7 @@ router.get('/:id/purchased', authenticate, async (req, res) => {
     });
     res.json({ purchased: !!purchase });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to check purchase status' });
+    res.status(500).json({ error: 'Sorry, we could not check your purchase status. Please try again later.' });
   }
 });
 
@@ -63,7 +63,7 @@ router.post('/:id/purchase', authenticate, async (req, res) => {
     const existing = await prisma.testSeriesPurchase.findFirst({ where: { userId, testSeriesId, status: 'active' } });
     if (existing) {
       console.log('Test series already purchased');
-      return res.status(200).json({ success: true, message: 'Already purchased' });
+      return res.status(200).json({ success: true, message: 'You have already purchased this test series.' });
     }
 
     console.log('Creating new test series purchase...');
@@ -74,7 +74,7 @@ router.post('/:id/purchase', authenticate, async (req, res) => {
     res.json({ success: true, purchase });
   } catch (error) {
     console.error('Error creating test series purchase:', error);
-    res.status(500).json({ error: 'Failed to mark as purchased' });
+    res.status(500).json({ error: 'Sorry, we could not mark this test series as purchased. Please try again.' });
   }
 });
 
@@ -82,11 +82,11 @@ router.post('/:id/purchase', authenticate, async (req, res) => {
 router.post('/', authenticate, async (req, res) => {
   try {
     if (!req.user || !req.user.isAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
+      return res.status(403).json({ error: 'You do not have permission to perform this action.' });
     }
     const { title, subtitle, image, startDate, features, price, originalPrice, discount } = req.body;
     if (!title || !subtitle || !image || typeof image !== 'string' || (!image.startsWith('http') && !image.startsWith('testseries-thumbnails/')) || !startDate || !features || !price || !originalPrice || !discount) {
-      return res.status(400).json({ error: 'Missing required fields' });
+      return res.status(400).json({ error: 'Please fill in all required fields.' });
     }
     const testSeries = await prisma.testSeries.create({
       data: {
@@ -102,7 +102,7 @@ router.post('/', authenticate, async (req, res) => {
     });
     res.status(201).json(testSeries);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to create test series' });
+    res.status(500).json({ error: 'Sorry, we could not create the test series. Please try again.' });
   }
 });
 
@@ -110,7 +110,7 @@ router.post('/', authenticate, async (req, res) => {
 router.put('/:id', authenticate, async (req, res) => {
   try {
     if (!req.user || !req.user.isAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
+      return res.status(403).json({ error: 'You do not have permission to perform this action.' });
     }
     const { id } = req.params;
     const { title, subtitle, image, startDate, features, price, originalPrice, discount } = req.body;
@@ -131,7 +131,7 @@ router.put('/:id', authenticate, async (req, res) => {
     });
     return res.json({ success: true, testSeries });
   } catch (error) {
-    return res.status(500).json({ error: 'Failed to update test series' });
+    return res.status(500).json({ error: 'Sorry, we could not update the test series. Please try again.' });
   }
 });
 
@@ -139,7 +139,7 @@ router.put('/:id', authenticate, async (req, res) => {
 router.delete('/:id', authenticate, async (req, res) => {
   try {
     if (!req.user || !req.user.isAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
+      return res.status(403).json({ error: 'You do not have permission to perform this action.' });
     }
     const { id } = req.params;
     // Get test series to delete image from S3
@@ -155,7 +155,7 @@ router.delete('/:id', authenticate, async (req, res) => {
     await prisma.testSeries.delete({ where: { id } });
     return res.json({ success: true, testSeries });
   } catch (error) {
-    return res.status(500).json({ error: 'Failed to delete test series' });
+    return res.status(500).json({ error: 'Sorry, we could not delete the test series. Please try again.' });
   }
 });
 
@@ -163,16 +163,16 @@ router.delete('/:id', authenticate, async (req, res) => {
 router.post('/upload-image', authenticate, uploadToS3('testseries-thumbnails').single('image'), async (req, res) => {
   try {
     if (!req.user || !req.user.isAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
+      return res.status(403).json({ error: 'You do not have permission to perform this action.' });
     }
     const file = req.file as any;
     if (!file) {
-      return res.status(400).json({ error: 'No file uploaded' });
+      return res.status(400).json({ error: 'Please select a file to upload.' });
     }
     // Return the S3 URL
-    return res.json({ success: true, path: file.location });
+    return res.json({ success: true, path: file.location, message: 'Image uploaded successfully.' });
   } catch (error) {
-    return res.status(500).json({ error: 'Failed to upload image' });
+    return res.status(500).json({ error: 'Sorry, we could not upload the image. Please try again.' });
   }
 });
 
@@ -180,11 +180,11 @@ router.post('/upload-image', authenticate, uploadToS3('testseries-thumbnails').s
 router.post('/presigned-upload', authenticate, async (req, res) => {
   try {
     if (!req.user || !req.user.isAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
+      return res.status(403).json({ error: 'You do not have permission to perform this action.' });
     }
     const { fileName, contentType } = req.body;
     if (!fileName || !contentType) {
-      return res.status(400).json({ error: 'fileName and contentType are required' });
+      return res.status(400).json({ error: 'Please provide both file name and content type.' });
     }
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     const key = `testseries-thumbnails/${uniqueSuffix}-${fileName}`;
@@ -192,7 +192,7 @@ router.post('/presigned-upload', authenticate, async (req, res) => {
     res.json({ url, key });
   } catch (error) {
     console.error('Error generating presigned upload URL:', error);
-    res.status(500).json({ error: 'Failed to generate presigned upload URL' });
+    res.status(500).json({ error: 'Sorry, we could not generate an upload link. Please try again.' });
   }
 });
 
@@ -200,12 +200,12 @@ router.post('/presigned-upload', authenticate, async (req, res) => {
 router.get('/:id/image-url', async (req, res) => {
   try {
     const testSeries = await prisma.testSeries.findUnique({ where: { id: req.params.id } });
-    if (!testSeries || !testSeries.image) return res.status(404).json({ error: 'Not found' });
+    if (!testSeries || !testSeries.image) return res.status(404).json({ error: 'The requested test series or image was not found.' });
     // testSeries.image is the S3 key
     const url = await generatePresignedUrl(testSeries.image, 300); // 5 minutes
     res.json({ url });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to generate image URL' });
+    res.status(500).json({ error: 'Sorry, we could not generate the image link. Please try again.' });
   }
 });
 
@@ -236,7 +236,7 @@ router.post('/test-purchase/:id', authenticate, async (req, res) => {
     res.json({ success: true, purchase });
   } catch (error) {
     console.error('Test purchase error:', error);
-    res.status(500).json({ error: 'Failed to create test purchase' });
+    res.status(500).json({ error: 'Sorry, we could not create the test purchase. Please try again.' });
   }
 });
 

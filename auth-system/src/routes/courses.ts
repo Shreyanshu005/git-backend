@@ -13,7 +13,7 @@ router.get('/', async (_req, res) => {
     const courses = await prisma.course.findMany();
     res.json(courses);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch courses' });
+    res.status(500).json({ error: 'Sorry, we could not load the courses. Please try again later.' });
   }
 });
 
@@ -28,7 +28,7 @@ router.get('/purchased', authenticate, async (req, res) => {
     const courses = purchases.map((p) => p.course);
     res.json({ courses });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch purchased courses' });
+    res.status(500).json({ error: 'Sorry, we could not load your purchased courses. Please try again later.' });
   }
 });
 
@@ -42,7 +42,7 @@ router.get('/:id/purchased', authenticate, async (req, res) => {
     });
     res.json({ purchased: !!purchase });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to check purchase status' });
+    res.status(500).json({ error: 'Sorry, we could not check your purchase status. Please try again later.' });
   }
 });
 
@@ -53,13 +53,13 @@ router.post('/:id/purchase', authenticate, async (req, res) => {
     const courseId = req.params.id;
     // Optionally: verify payment here
     const existing = await prisma.coursePurchase.findFirst({ where: { userId, courseId, status: 'active' } });
-    if (existing) return res.status(200).json({ success: true, message: 'Already purchased' });
+    if (existing) return res.status(200).json({ success: true, message: 'You have already purchased this course.' });
     await prisma.coursePurchase.create({
       data: { userId, courseId, status: 'active' },
     });
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to mark as purchased' });
+    res.status(500).json({ error: 'Sorry, we could not mark this course as purchased. Please try again.' });
   }
 });
 
@@ -67,7 +67,7 @@ router.post('/:id/purchase', authenticate, async (req, res) => {
 router.post('/', authenticate, async (req, res) => {
   try {
     if (!req.user || !req.user.isAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
+      return res.status(403).json({ error: 'You do not have permission to perform this action.' });
     }
     const { title, subtitle, image, startDate, price, originalPrice, discount } = req.body;
     let { features } = req.body;
@@ -80,7 +80,7 @@ router.post('/', authenticate, async (req, res) => {
       features = [];
     }
     if (!title || !subtitle || !image || typeof image !== 'string' || (!image.startsWith('http') && !image.startsWith('course-thumbnails/')) || !startDate || !features.length || !price || !originalPrice || !discount) {
-      return res.status(400).json({ error: 'Missing required fields' });
+      return res.status(400).json({ error: 'Please fill in all required fields.' });
     }
     const course = await prisma.course.create({
       data: {
@@ -96,7 +96,7 @@ router.post('/', authenticate, async (req, res) => {
     });
     res.status(201).json(course);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to create course' });
+    res.status(500).json({ error: 'Sorry, we could not create the course. Please try again.' });
   }
 });
 
@@ -104,7 +104,7 @@ router.post('/', authenticate, async (req, res) => {
 router.delete('/:id', authenticate, async (req, res) => {
   try {
     if (!req.user || !req.user.isAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
+      return res.status(403).json({ error: 'You do not have permission to perform this action.' });
     }
     const { id } = req.params;
     
@@ -122,7 +122,7 @@ router.delete('/:id', authenticate, async (req, res) => {
     await prisma.course.delete({ where: { id } });
     res.json({ success: true, course });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to delete course' });
+    res.status(500).json({ error: 'Sorry, we could not delete the course. Please try again.' });
   }
 });
 
@@ -130,7 +130,7 @@ router.delete('/:id', authenticate, async (req, res) => {
 router.put('/:id', authenticate, async (req, res) => {
   try {
     if (!req.user || !req.user.isAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
+      return res.status(403).json({ error: 'You do not have permission to perform this action.' });
     }
     const { id } = req.params;
     const { title, subtitle, image, startDate, features, price, originalPrice, discount } = req.body;
@@ -153,7 +153,7 @@ router.put('/:id', authenticate, async (req, res) => {
     });
     res.json({ success: true, course });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to update course' });
+    res.status(500).json({ error: 'Sorry, we could not update the course. Please try again.' });
   }
 });
 
@@ -161,17 +161,17 @@ router.put('/:id', authenticate, async (req, res) => {
 router.post('/upload-image', authenticate, uploadToS3('course-thumbnails').single('image'), async (req, res) => {
   try {
     if (!req.user || !req.user.isAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
+      return res.status(403).json({ error: 'You do not have permission to perform this action.' });
     }
     const file = req.file as any;
     if (!file) {
-      return res.status(400).json({ error: 'No file uploaded' });
+      return res.status(400).json({ error: 'Please select a file to upload.' });
     }
     // Return the S3 URL
-    res.json({ success: true, path: file.location });
+    res.json({ success: true, path: file.location, message: 'Image uploaded successfully.' });
   } catch (error) {
     console.error('Upload error:', error);
-    res.status(500).json({ error: 'Failed to upload image' });
+    res.status(500).json({ error: 'Sorry, we could not upload the image. Please try again.' });
   }
 });
 
@@ -179,11 +179,11 @@ router.post('/upload-image', authenticate, uploadToS3('course-thumbnails').singl
 router.post('/presigned-upload', authenticate, async (req, res) => {
   try {
     if (!req.user || !req.user.isAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
+      return res.status(403).json({ error: 'You do not have permission to perform this action.' });
     }
     const { fileName, contentType } = req.body;
     if (!fileName || !contentType) {
-      return res.status(400).json({ error: 'fileName and contentType are required' });
+      return res.status(400).json({ error: 'Please provide both file name and content type.' });
     }
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     const key = `course-thumbnails/${uniqueSuffix}-${fileName}`;
@@ -191,7 +191,7 @@ router.post('/presigned-upload', authenticate, async (req, res) => {
     res.json({ url, key });
   } catch (error) {
     console.error('Error generating presigned upload URL:', error);
-    res.status(500).json({ error: 'Failed to generate presigned upload URL' });
+    res.status(500).json({ error: 'Sorry, we could not generate an upload link. Please try again.' });
   }
 });
 
@@ -199,12 +199,12 @@ router.post('/presigned-upload', authenticate, async (req, res) => {
 router.get('/:id/image-url', async (req, res) => {
   try {
     const course = await prisma.course.findUnique({ where: { id: req.params.id } });
-    if (!course || !course.image) return res.status(404).json({ error: 'Not found' });
+    if (!course || !course.image) return res.status(404).json({ error: 'The requested course or image was not found.' });
     // course.image is the S3 key
     const url = await generatePresignedUrl(course.image, 300); // 5 minutes
     res.json({ url });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to generate image URL' });
+    res.status(500).json({ error: 'Sorry, we could not generate the image link. Please try again.' });
   }
 });
 
