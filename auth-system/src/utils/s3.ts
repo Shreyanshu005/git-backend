@@ -77,12 +77,15 @@ export const generatePresignedUrl = async (fileUrlOrKey: string, expiresIn = 360
       const url = new URL(fileUrlOrKey);
       key = url.pathname.substring(1);
     }
-    // Set Content-Disposition: inline for PDFs
+    // Set Content-Disposition: inline and Content-Type: application/pdf for PDFs
     const isPdf = key.toLowerCase().endsWith('.pdf');
     const command = new GetObjectCommand({
       Bucket: BUCKET_NAME,
       Key: key,
-      ...(isPdf ? { ResponseContentDisposition: 'inline' } : {})
+      ...(isPdf ? {
+        ResponseContentDisposition: 'inline',
+        ResponseContentType: 'application/pdf'
+      } : {})
     });
     return await getSignedUrl(s3Client, command, { expiresIn });
   } catch (error) {

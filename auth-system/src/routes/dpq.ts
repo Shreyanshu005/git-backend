@@ -41,12 +41,13 @@ router.post('/upload', authenticate, uploadToS3('dpq').single('pdf'), async (req
     if (!file || !title || !date) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
-    // Store the S3 URL in database
+    // Save only the S3 key in the database
+    const key = file.key || (file.location ? new URL(file.location).pathname.substring(1) : null);
     const dpq = await prisma.dailyPracticeQuestion.create({
       data: {
         title,
         date: new Date(date),
-        pdfUrl: file.location, // S3 URL
+        pdfUrl: key, // Save only the key
       }
     });
     return res.status(201).json(dpq);
