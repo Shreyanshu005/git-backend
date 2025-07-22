@@ -20,7 +20,7 @@ router.get('/', async (_req, res) => {
 // NEW: Get all test series purchased by the current user
 router.get('/purchased', authenticate, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.userId;
     console.log('Fetching purchased test series for user:', userId);
 
     const purchases = await prisma.testSeriesPurchase.findMany({
@@ -29,7 +29,7 @@ router.get('/purchased', authenticate, async (req, res) => {
     });
     console.log('Found purchases:', purchases);
 
-    const testSeries = purchases.map((p) => p.testSeries);
+    const testSeries = purchases.filter(p => p.testSeries).map((p) => p.testSeries);
     console.log('Returning test series:', testSeries);
     res.json({ testSeries });
   } catch (error) {
@@ -49,6 +49,22 @@ router.get('/:id/purchased', authenticate, async (req, res) => {
     res.json({ purchased: !!purchase });
   } catch (error) {
     res.status(500).json({ error: 'Sorry, we could not check your purchase status. Please try again later.' });
+  }
+});
+
+// GET a single test series by ID
+router.get('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const testSeries = await prisma.testSeries.findUnique({
+      where: { id },
+    });
+    if (!testSeries) {
+      return res.status(404).json({ error: 'Test series not found.' });
+    }
+    res.json(testSeries);
+  } catch (error) {
+    res.status(500).json({ error: 'Sorry, we could not load the test series. Please try again later.' });
   }
 });
 

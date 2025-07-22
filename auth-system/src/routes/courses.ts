@@ -20,15 +20,38 @@ router.get('/', async (_req, res) => {
 // NEW: Get all courses purchased by the current user
 router.get('/purchased', authenticate, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.userId;
+    console.log('Fetching purchased courses for user:', userId); // Logging user ID
+
     const purchases = await prisma.coursePurchase.findMany({
       where: { userId, status: 'active' },
       include: { course: true },
     });
-    const courses = purchases.map((p) => p.course);
+    console.log('Found course purchases:', purchases); // Logging DB query result
+
+    const courses = purchases.filter(p => p.course).map((p) => p.course);
+    console.log('Returning courses:', courses); // Logging final course list
+    
     res.json({ courses });
   } catch (error) {
+    console.error('Error fetching purchased courses:', error); // Enhanced error logging
     res.status(500).json({ error: 'Sorry, we could not load your purchased courses. Please try again later.' });
+  }
+});
+
+// GET a single course by ID
+router.get('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const course = await prisma.course.findUnique({
+      where: { id },
+    });
+    if (!course) {
+      return res.status(404).json({ error: 'Course not found.' });
+    }
+    res.json(course);
+  } catch (error) {
+    res.status(500).json({ error: 'Sorry, we could not load the course. Please try again later.' });
   }
 });
 
