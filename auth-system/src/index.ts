@@ -2,19 +2,38 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import dotenv from 'dotenv';
+import cors from 'cors';
 import authRoutes from './routes/auth';
 import { authenticate } from './middlewares/auth';
-import cors from 'cors';
 import courseRoutes from './routes/courses';
-
 import testSeriesRoutes from './routes/testseries';
 import currentAffairsRoutes from './routes/currentAffairs';
 import dpqRoutes from './routes/dpq';
 import digitalLibraryRoutes from './routes/digitalLibrary';
 import paymentsRoutes from './routes/payments';
+import path from 'path';
 
-// Load environment variables
-dotenv.config();
+// Load environment variables from all possible locations
+dotenv.config(); // Load from .env in root
+dotenv.config({ path: path.resolve(process.cwd(), '.env') }); // Load from current directory
+dotenv.config({ path: path.resolve(process.cwd(), '.env.local') }); // Load from .env.local
+
+// Debug environment loading
+console.log('Current working directory:', process.cwd());
+console.log('Checking for Gemini API key...');
+
+// Validate only the Gemini API key
+if (!process.env.GEMINI_API_KEY) {
+  console.error('Error: Gemini API key is required for AI mock tests');
+  console.error('Please add GEMINI_API_KEY to your .env file');
+  console.error('Current .env file locations checked:');
+  console.error('- ' + path.resolve(process.cwd(), '.env'));
+  console.error('- ' + path.resolve(process.cwd(), '.env.local'));
+} else {
+  console.log('Gemini API key is configured');
+  // Log first few characters of the key to verify it's loaded correctly
+  console.log('API Key starts with:', process.env.GEMINI_API_KEY.substring(0, 4));
+}
 
 const app = express();
 const httpServer = createServer(app);

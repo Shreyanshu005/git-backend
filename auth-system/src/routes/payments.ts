@@ -23,13 +23,24 @@ router.post('/create-session', authenticate, async (req, res) => {
       console.error('Cashfree credentials not configured:', { 
         appId: !!CASHFREE_APP_ID, 
         secretKey: !!CASHFREE_SECRET_KEY,
-        env: CASHFREE_ENV 
+        env: CASHFREE_ENV,
+        appIdLength: CASHFREE_APP_ID?.length,
+        secretKeyLength: CASHFREE_SECRET_KEY?.length
       });
       return res.status(500).json({ 
         success: false, 
         error: 'Payment system not configured properly' 
       });
     }
+
+    console.log('Cashfree Configuration:', {
+      environment: CASHFREE_ENV,
+      baseUrl: BASE_URL,
+      appIdPresent: !!CASHFREE_APP_ID,
+      secretKeyPresent: !!CASHFREE_SECRET_KEY,
+      appIdLength: CASHFREE_APP_ID?.length,
+      secretKeyLength: CASHFREE_SECRET_KEY?.length
+    });
 
     const { type, itemId } = req.body; // type: 'library' | 'course' | 'testseries'
     const userId = req.user?.userId;
@@ -100,7 +111,17 @@ router.post('/create-session', authenticate, async (req, res) => {
           'x-api-version': '2022-09-01',
         },
       }
-    );
+    ).catch(error => {
+      console.error('Cashfree API Error:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        headers: error.response?.headers,
+        requestUrl: error.config?.url,
+        requestHeaders: error.config?.headers
+      });
+      throw error;
+    });
 
     console.log('Cashfree API response:', {
       status: response.status,

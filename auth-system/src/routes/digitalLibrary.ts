@@ -6,6 +6,7 @@ import { authenticate } from '../middlewares/auth';
 const router = express.Router();
 const prisma = new PrismaClient();
 
+
 // Get all e-books (public endpoint)
 router.get('/ebooks', async (req, res) => {
   try {
@@ -500,6 +501,310 @@ router.post('/seed-ebooks', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Error seeding e-books:', error);
     return res.status(500).json({ error: 'Failed to seed e-books' });
+  }
+});
+
+
+interface GeminiResponse {
+  candidates?: Array<{
+    content: {
+      parts: Array<{
+        text: string;
+      }>;
+    };
+  }>;
+  error?: {
+    message: string;
+    code: string;
+  };
+}
+
+// Function to validate Gemini API key
+const validateGeminiKey = () => {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('Gemini API key is not configured');
+  }
+  return apiKey;
+};
+
+// Mock test generation route
+router.post('/mock-test/generate', authenticate, async (req, res) => {
+  try {
+    const apiKey = validateGeminiKey();
+    const { subject, difficulty, questionCount } = req.body;
+
+    // Validate input
+    if (!subject || !difficulty || !questionCount) {
+      console.log('Missing parameters:', { subject, difficulty, questionCount });
+      return res.status(400).json({ error: 'Missing required parameters' });
+    }
+
+    // Call Gemini API to generate questions
+    const prompt = `Generate ${questionCount} multiple choice questions for UPSC exam preparation on the subject of ${subject} at ${difficulty} difficulty level. Each question should have 4 options and one correct answer. Format the response as a JSON array of objects with the following structure:
+    {
+      "question": "The question text",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "correctAnswer": 0 // Index of the correct option (0-3)
+    }
+    Make sure to return ONLY the JSON array without any additional text or formatting.`;
+
+    console.log('Sending request to Gemini with subject:', subject, 'difficulty:', difficulty);
+    
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: prompt
+          }]
+        }],
+        generationConfig: {
+          temperature: 0.7,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 2048
+        }
+      })
+    });
+
+    const data = await response.json() as GeminiResponse;
+    console.log('Gemini API Response:', data);
+    
+    if (!response.ok || data.error) {
+      console.error('Gemini API Error:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: data.error
+      });
+      return res.status(500).json({ 
+        error: 'Failed to generate questions',
+        details: data.error?.message || 'Unknown error occurred'
+      });
+    }
+
+    if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
+      console.error('Invalid Gemini response format:', data);
+      return res.status(500).json({ error: 'Invalid response from AI service' });
+    }
+
+    // Parse and format the response
+    let questions;
+    try {
+      const responseText = data.candidates[0].content.parts[0].text;
+      // Try to extract JSON if it's wrapped in other text
+      const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+      const jsonStr = jsonMatch ? jsonMatch[0] : responseText;
+      
+      questions = JSON.parse(jsonStr);
+      
+      if (!Array.isArray(questions)) {
+        console.error('Questions is not an array:', questions);
+        return res.status(500).json({ error: 'Invalid questions format from AI service' });
+      }
+
+      // Validate question format
+      const isValidFormat = questions.every(q => 
+        q.question && 
+        Array.isArray(q.options) && 
+        q.options.length === 4 && 
+        typeof q.correctAnswer === 'number' &&
+        q.correctAnswer >= 0 && 
+        q.correctAnswer <= 3
+      );
+
+      if (!isValidFormat) {
+        console.error('Invalid question format:', questions);
+        return res.status(500).json({ error: 'Invalid question format from AI service' });
+      }
+    } catch (parseError) {
+      console.error('Failed to parse questions:', {
+        error: parseError,
+        content: data.candidates[0].content.parts[0].text
+      });
+      return res.status(500).json({ error: 'Failed to parse AI response' });
+    }
+    
+    // Add unique IDs to questions
+    const questionsWithIds = questions.map((q: any, index: number) => ({
+      ...q,
+      id: index + 1
+    }));
+
+    console.log('Successfully generated questions for subject:', subject);
+    return res.json({ questions: questionsWithIds });
+  } catch (error) {
+    console.error('Error generating mock test:', error);
+    const message = error instanceof Error ? error.message : 'Failed to generate mock test';
+    return res.status(500).json({ error: message });
+  }
+});
+
+interface Answer {
+  questionId: number;
+  selectedAnswer: number;
+  correctAnswer: number;
+}
+
+// Mock test evaluation route
+router.post('/mock-test/evaluate', authenticate, async (req, res) => {
+  try {
+    const apiKey = validateGeminiKey();
+    const { answers } = req.body as { answers: Answer[] };
+
+    if (!answers || !Array.isArray(answers)) {
+      return res.status(400).json({ error: 'Invalid answers format' });
+    }
+
+    // Calculate score
+    const totalQuestions = answers.length;
+    const correctAnswers = answers.filter(a => a.selectedAnswer === a.correctAnswer).length;
+    const score = Math.round((correctAnswers / totalQuestions) * 100);
+
+    // Generate analysis using Gemini
+    const prompt = `As an UPSC exam expert, analyze this test performance and provide feedback:
+    - Score: ${score}% (${correctAnswers} correct out of ${totalQuestions} questions)
+    
+    Please provide:
+    1. A brief assessment of the performance
+    2. Areas of strength
+    3. Areas needing improvement
+    4. Specific study tips
+    
+    Keep the response concise and focused on helping the student improve.`;
+
+    console.log('Requesting analysis from Gemini...');
+    
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: prompt
+          }]
+        }],
+        generationConfig: {
+          temperature: 0.7,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 1024
+        }
+      })
+    });
+
+    const data = await response.json() as GeminiResponse;
+    console.log('Gemini Analysis Response:', {
+      status: response.status,
+      statusText: response.statusText,
+      hasError: !!data.error,
+      hasContent: !!data.candidates?.[0]?.content?.parts?.[0]?.text
+    });
+    
+    if (!response.ok || data.error) {
+      console.error('Gemini API Error:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: data.error
+      });
+
+      // Provide a default analysis if AI generation fails
+      return res.json({
+        score,
+        correctAnswers,
+        totalQuestions,
+        analysis: `Score: ${score}%\n\nYou answered ${correctAnswers} out of ${totalQuestions} questions correctly. Keep practicing to improve your performance. Focus on understanding the concepts thoroughly and review the topics where you made mistakes.`
+      });
+    }
+
+    if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
+      console.error('Invalid Gemini response format:', data);
+      // Provide a default analysis for invalid response
+      return res.json({
+        score,
+        correctAnswers,
+        totalQuestions,
+        analysis: `Score: ${score}%\n\nYou answered ${correctAnswers} out of ${totalQuestions} questions correctly. Continue practicing and focus on areas where you need improvement.`
+      });
+    }
+
+    const analysis = data.candidates[0].content.parts[0].text;
+    console.log('Successfully generated analysis');
+
+    return res.json({
+      score,
+      correctAnswers,
+      totalQuestions,
+      analysis
+    });
+  } catch (error) {
+    console.error('Error evaluating mock test:', error);
+    
+    // Return basic results even if analysis generation fails
+    const answers = (req.body?.answers || []) as Answer[];
+    const totalQuestions = answers.length;
+    const correctAnswers = answers.filter(a => a.selectedAnswer === a.correctAnswer).length;
+    const score = totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 100) : 0;
+
+    return res.json({
+      score,
+      correctAnswers,
+      totalQuestions,
+      analysis: 'Analysis generation failed. Please review your answers and focus on topics where you made mistakes.'
+    });
+  }
+});
+
+// Verify Gemini API key route
+router.get('/mock-test/verify-api', authenticate, async (_req, res) => {
+  try {
+    const apiKey = validateGeminiKey();
+    console.log('Attempting to verify Gemini API key...');
+
+    // Test the API key with a simple request
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: "Test message"
+          }]
+        }]
+      })
+    });
+
+    const data = await response.json() as GeminiResponse;
+    console.log('Gemini API Response:', {
+      status: response.status,
+      statusText: response.statusText,
+      data: data
+    });
+    
+    if (!response.ok || data.error) {
+      console.error('Gemini API Key verification failed:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: data.error
+      });
+      return res.status(500).json({ 
+        error: 'Gemini API key verification failed',
+        details: data.error?.message || 'Unknown error occurred'
+      });
+    }
+
+    return res.json({ status: 'ok', message: 'Gemini API key is valid' });
+  } catch (error) {
+    console.error('Error verifying Gemini API key:', error);
+    const message = error instanceof Error ? error.message : 'Failed to verify Gemini API key';
+    return res.status(500).json({ error: message });
   }
 });
 
