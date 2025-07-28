@@ -338,7 +338,7 @@ export const sendProfileUpdateOTP = async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Mobile number is already registered with another account' });
         }
 
-        // Generate and send OTP
+        // Generate and send OTPs
         const otp = generateOTP();
         otpStore.set(`profile_${mobileNumber}`, {
             otp,
