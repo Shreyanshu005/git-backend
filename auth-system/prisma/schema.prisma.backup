@@ -1,0 +1,132 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(uuid())
+  name          String   @db.VarChar(100)
+  mobileNumber  String   @unique @db.VarChar(15)
+  email         String?  @unique @db.VarChar(100)
+  isVerified    Boolean  @default(false)
+  isAdmin       Boolean  @default(false)
+  version       Int      @default(0)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  coursePurchases CoursePurchase[]
+  librarySubscriptions DigitalLibrarySubscription[]
+  testSeriesPurchases TestSeriesPurchase[]
+
+  @@map("users")
+}
+
+model Course {
+  id            String   @id @default(uuid())
+  title         String
+  subtitle      String
+  image         String
+  startDate     String
+  features      String[]
+  price         Int
+  originalPrice Int
+  discount      Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  coursePurchases CoursePurchase[]
+}
+
+model TestSeries {
+  id            String   @id @default(uuid())
+  title         String
+  subtitle      String
+  image         String
+  startDate     String
+  features      String[]
+  price         Int
+  originalPrice Int
+  discount      Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  testSeriesPurchases TestSeriesPurchase[]
+}
+
+model TestSeriesPurchase {
+  id           String   @id @default(uuid())
+  user         User     @relation(fields: [userId], references: [id])
+  userId       String
+  testSeries   TestSeries @relation(fields: [testSeriesId], references: [id])
+  testSeriesId String
+  purchasedAt  DateTime @default(now())
+  status       String   // e.g. 'active', 'cancelled', 'refunded'
+}
+
+model CoursePurchase {
+  id           String   @id @default(uuid())
+  user         User     @relation(fields: [userId], references: [id])
+  userId       String
+  course       Course   @relation(fields: [courseId], references: [id])
+  courseId     String
+  purchasedAt  DateTime @default(now())
+  status       String   // e.g. 'active', 'cancelled', 'refunded'
+} 
+
+model CurrentAffair {
+  id        String   @id @default(uuid())
+  title     String
+  date      DateTime
+  pdfUrl    String
+  createdAt DateTime @default(now())
+} 
+
+model DailyPracticeQuestion {
+  id        String   @id @default(uuid())
+  title     String
+  date      DateTime
+  pdfUrl    String
+  createdAt DateTime @default(now())
+}
+
+model EBook {
+  id          String   @id @default(uuid())
+  title       String
+  subtitle    String
+  description String
+  author      String
+  category    String   // e.g., 'UPSC', 'BPSC', 'UPPCS', 'General Studies', 'Optional Subjects'
+  coverImage  String
+  pdfUrl      String
+  fileSize    String   // e.g., "2.5 MB"
+  pages       Int
+  language    String   @default("English")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("ebooks")
+}
+
+model DigitalLibrarySubscription {
+  id           String   @id @default(uuid())
+  user         User     @relation(fields: [userId], references: [id])
+  userId       String
+  subscriptionType String @default("lifetime") // "lifetime", "monthly", "yearly"
+  amount       Int      @default(499) // Amount in paise (49900 for ₹499)
+  status       String   @default("active") // "active", "expired", "cancelled"
+  purchasedAt  DateTime @default(now())
+  expiresAt    DateTime? // null for lifetime subscriptions
+  paymentId    String?  // For payment gateway reference
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("digital_library_subscriptions")
+} 

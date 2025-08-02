@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,74 +8,72 @@ datasource db {
 }
 
 model User {
-  id            String   @id @default(uuid())
-  name          String   @db.VarChar(100)
-  mobileNumber  String   @unique @db.VarChar(15)
-  email         String?  @unique @db.VarChar(100)
-  isVerified    Boolean  @default(false)
-  isAdmin       Boolean  @default(false)
-  version       Int      @default(0)
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-
-  coursePurchases CoursePurchase[]
+  id                   String                       @id @default(uuid())
+  name                 String                       @db.VarChar(100)
+  mobileNumber         String                       @unique @db.VarChar(15)
+  isVerified           Boolean                      @default(false)
+  version              Int                          @default(0)
+  createdAt            DateTime                     @default(now()) @map("created_at")
+  updatedAt            DateTime                     @updatedAt @map("updated_at")
+  email                String?                      @unique @db.VarChar(100)
+  isAdmin              Boolean                      @default(false)
+  coursePurchases      CoursePurchase[]
+  testSeriesPurchases  TestSeriesPurchase[]
   librarySubscriptions DigitalLibrarySubscription[]
-  testSeriesPurchases TestSeriesPurchase[]
+  mockTests            MockTest[]
 
   @@map("users")
 }
 
 model Course {
-  id            String   @id @default(uuid())
-  title         String
-  subtitle      String
-  image         String
-  startDate     String
-  features      String[]
-  price         Int
-  originalPrice Int
-  discount      Int
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  coursePurchases CoursePurchase[]
+  id              String           @id @default(uuid())
+  title           String
+  subtitle        String
+  image           String
+  startDate       String
+  features        String[]
+  price           Int
+  originalPrice   Int
+  discount        Int
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  coursePurchases CoursePurchase[] @relation("CourseToPurchase")
 }
 
 model TestSeries {
-  id            String   @id @default(uuid())
-  title         String
-  subtitle      String
-  image         String
-  startDate     String
-  features      String[]
-  price         Int
-  originalPrice Int
-  discount      Int
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  testSeriesPurchases TestSeriesPurchase[]
+  id                  String               @id @default(uuid())
+  title               String
+  subtitle            String
+  image               String
+  startDate           String
+  features            String[]
+  price               Int
+  originalPrice       Int
+  discount            Int
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  testSeriesPurchases TestSeriesPurchase[] @relation("TestSeriesToPurchase")
 }
 
 model TestSeriesPurchase {
-  id           String   @id @default(uuid())
-  user         User     @relation(fields: [userId], references: [id])
+  id           String     @id @default(uuid())
   userId       String
-  testSeries   TestSeries @relation(fields: [testSeriesId], references: [id])
   testSeriesId String
-  purchasedAt  DateTime @default(now())
-  status       String   // e.g. 'active', 'cancelled', 'refunded'
+  purchasedAt  DateTime   @default(now())
+  status       String
+  testSeries   TestSeries @relation("TestSeriesToPurchase", fields: [testSeriesId], references: [id], onDelete: Cascade)
+  user         User       @relation(fields: [userId], references: [id])
 }
 
 model CoursePurchase {
-  id           String   @id @default(uuid())
-  user         User     @relation(fields: [userId], references: [id])
-  userId       String
-  course       Course   @relation(fields: [courseId], references: [id])
-  courseId     String
-  purchasedAt  DateTime @default(now())
-  status       String   // e.g. 'active', 'cancelled', 'refunded'
-} 
+  id          String   @id @default(uuid())
+  userId      String
+  courseId    String
+  purchasedAt DateTime @default(now())
+  status      String
+  course      Course   @relation("CourseToPurchase", fields: [courseId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id])
+}
 
 model CurrentAffair {
   id        String   @id @default(uuid())
@@ -86,7 +81,7 @@ model CurrentAffair {
   date      DateTime
   pdfUrl    String
   createdAt DateTime @default(now())
-} 
+}
 
 model DailyPracticeQuestion {
   id        String   @id @default(uuid())
@@ -96,16 +91,46 @@ model DailyPracticeQuestion {
   createdAt DateTime @default(now())
 }
 
+model MockTest {
+  id         String             @id @default(uuid())
+  subject    String
+  difficulty String
+  userId     String
+  expiresAt  DateTime           @default(now())
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+  questions  MockTestQuestion[]
+  user       User               @relation(fields: [userId], references: [id])
+
+  @@index([expiresAt])
+  @@map("mock_tests")
+}
+
+model MockTestQuestion {
+  id             String   @id @default(uuid())
+  testId         String
+  questionText   String
+  options        String[]
+  correctAnswer  Int
+  questionNumber Int
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  test           MockTest @relation(fields: [testId], references: [id], onDelete: Cascade)
+
+  @@index([testId])
+  @@map("mock_test_questions")
+}
+
 model EBook {
   id          String   @id @default(uuid())
   title       String
   subtitle    String
   description String
   author      String
-  category    String   // e.g., 'UPSC', 'BPSC', 'UPPCS', 'General Studies', 'Optional Subjects'
+  category    String
   coverImage  String
   pdfUrl      String
-  fileSize    String   // e.g., "2.5 MB"
+  fileSize    String
   pages       Int
   language    String   @default("English")
   isActive    Boolean  @default(true)
@@ -116,17 +141,17 @@ model EBook {
 }
 
 model DigitalLibrarySubscription {
-  id           String   @id @default(uuid())
-  user         User     @relation(fields: [userId], references: [id])
-  userId       String
-  subscriptionType String @default("lifetime") // "lifetime", "monthly", "yearly"
-  amount       Int      @default(499) // Amount in paise (49900 for ₹499)
-  status       String   @default("active") // "active", "expired", "cancelled"
-  purchasedAt  DateTime @default(now())
-  expiresAt    DateTime? // null for lifetime subscriptions
-  paymentId    String?  // For payment gateway reference
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id               String    @id @default(uuid())
+  userId           String
+  subscriptionType String    @default("lifetime")
+  amount           Int       @default(499)
+  status           String    @default("active")
+  purchasedAt      DateTime  @default(now())
+  expiresAt        DateTime?
+  paymentId        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  user             User      @relation(fields: [userId], references: [id])
 
   @@map("digital_library_subscriptions")
-} 
+}

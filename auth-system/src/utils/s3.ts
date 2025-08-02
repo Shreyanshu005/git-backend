@@ -50,12 +50,16 @@ export const uploadToS3 = (folder: string) => {
 };
 
 // Delete file from S3
-export const deleteFromS3 = async (fileUrl: string): Promise<void> => {
+export const deleteFromS3 = async (fileUrlOrKey: string): Promise<void> => {
   try {
-    // Extract key from S3 URL
-    const url = new URL(fileUrl);
-    const key = url.pathname.substring(1); // Remove leading slash
-    
+    let key: string;
+    // If it's a full URL, extract the key; otherwise, use as key directly
+    if (fileUrlOrKey.startsWith('http')) {
+      const url = new URL(fileUrlOrKey);
+      key = url.pathname.startsWith('/') ? url.pathname.slice(1) : url.pathname;
+    } else {
+      key = fileUrlOrKey;
+    }
     const command = new DeleteObjectCommand({
       Bucket: BUCKET_NAME,
       Key: key,
@@ -63,6 +67,7 @@ export const deleteFromS3 = async (fileUrl: string): Promise<void> => {
     
     await s3Client.send(command);
   } catch (error) {
+    // console.log(error);
     console.error('Error deleting file from S3:', error);
     throw error;
   }
