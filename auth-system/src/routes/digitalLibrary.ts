@@ -42,6 +42,19 @@ interface MockTestQuestion {
   createdAt?: Date;
   updatedAt?: Date;
 }
+import { authenticate } from '../middlewares/auth';
+
+// Define types for mock test questions
+interface MockTestQuestion {
+  id: string;
+  questionNumber: number;
+  questionText: string;
+  options: string[];
+  correctAnswer: number;
+  testId: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
 
 // Define the MockTest type with questions
 interface MockTest {
@@ -57,9 +70,18 @@ interface MockTest {
     id: string;
     name: string;
   };
+}
+
+// Extend the Prisma client type to include our custom models
+type ExtendedPrismaClient = PrismaClient & {
+  mockTest: any;
+  mockTestQuestion: any;
 };
-// import { uploadToS3, deleteFromS3 } from '../utils/s3';
-import { authenticate } from '../middlewares/auth';
+
+// Initialize Prisma client with proper typing
+const prisma = new PrismaClient({
+  log: ['query', 'info', 'warn', 'error'],
+}) as unknown as ExtendedPrismaClient;
 
 // Middleware to check for active digital library subscription
 const checkSubscription = async (req: any, res: any, next: any) => {
@@ -132,15 +154,15 @@ interface MockTest {
 
 
 // Extend the Prisma client type to include our models
-type ExtendedPrismaClient = PrismaClient & {
-  mockTest: any;
-  mockTestQuestion: any;
-};
+// type ExtendedPrismaClient = PrismaClient & {
+//   mockTest: any;
+//   mockTestQuestion: any;
+// };
 
-// Initialize Prisma client with proper typing
-const prisma = new PrismaClient({
-  log: ['query', 'info', 'warn', 'error'],
-}) as unknown as ExtendedPrismaClient;
+// // Initialize Prisma client with proper typing
+// const prisma = new PrismaClient({
+//   log: ['query', 'info', 'warn', 'error'],
+// }) as unknown as ExtendedPrismaClient;
 
 
 // Get all e-books (public endpoint)
@@ -809,56 +831,110 @@ router.post('/mock-test/generate', authenticate, checkSubscription, async (req, 
       });
     }
     
-    // Create mock test and questions in a transaction
+    // Create mock test and questions in a transaction with increased timeout
+    const transactionOptions = {
+      maxWait: 30000, // 30 seconds max wait time
+      timeout: 120000, // 2 minutes max transaction duration
+      isolationLevel: 'Serializable' as const
+    };
+
     const mockTest = await prisma.$transaction(async (tx) => {
-      // Cast to any to bypass TypeScript errors for now
-      const prismaTx = tx as any;
-      // Create the mock test
-      const createdTest = await prismaTx.mockTest.create({
-        data: {
-          subject,
-          difficulty,
-          userId: userId,
-          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours from now
-        }
-      });
+      // First create the mock test
+      const createdTest = await tx.$queryRaw`
+        INSERT INTO mock_tests (id, subject, difficulty, "userId", "expiresAt", "createdAt", "updatedAt")
+        VALUES (gen_random_uuid(), ${subject}, ${difficulty}, ${userId}, 
+                ${new Date(Date.now() + 24 * 60 * 60 * 1000)}::timestamp, 
+                NOW(), NOW())
+        RETURNING *;
+      ` as Array<{ id: string }>;
+      
+      if (!createdTest?.[0]?.id) {
+        throw new Error('Failed to create mock test');
+      }
+      
+      const testId = createdTest[0].id;
 
       // Create questions if they exist
-      if (questions && questions.length > 0) {
-        await prismaTx.mockTestQuestion.createMany({
-          data: questions.map((q, index) => ({
-            testId: createdTest.id,
-            questionText: q.question,
-            questionNumber: index + 1,
-            options: q.options,
-            correctAnswer: q.correctAnswer
-          }))
-        });
+      if (questions?.length) {
+        // Use a batch insert approach with prepared statements for better performance
+        const batchSize = 10; // Process questions in batches of 10
+        
+        for (let i = 0; i < questions.length; i += batchSize) {
+          const batch = questions.slice(i, i + batchSize);
+          const values = batch.map((q, idx) => {
+            const optionsArray = q.options.map((opt: string) => opt.replace(/"/g, '\\"'));
+            return {
+              testId,
+              question: q.question,
+              options: optionsArray,
+              correctAnswer: q.correctAnswer,
+              questionNumber: i + idx + 1
+            };
+          });
+
+          // Convert options array to PostgreSQL array literal format
+          const valuesWithFormattedOptions = values.map(v => ({
+            ...v,
+            optionsLiteral: `{${v.options.map((opt: string) => `"${opt}"`).join(',')}}`
+          }));
+          
+          // Use a prepared statement for the batch
+          await tx.$executeRaw`
+            WITH batch_data AS (
+              SELECT 
+                gen_random_uuid() as id,
+                (q.value->>'testId')::uuid as test_id,
+                q.value->>'question' as question_text,
+                (q.value->>'optionsLiteral')::text[] as options,
+                (q.value->>'correctAnswer')::integer as correct_answer,
+                (q.value->>'questionNumber')::integer as question_number,
+                NOW() as created_at,
+                NOW() as updated_at
+              FROM jsonb_array_elements(${JSON.stringify(valuesWithFormattedOptions)}::jsonb) AS q(value)
+            )
+            INSERT INTO mock_test_questions 
+              (id, "testId", "questionText", options, "correctAnswer", "questionNumber", "createdAt", "updatedAt")
+            SELECT 
+              id, 
+              test_id, 
+              question_text, 
+              options, 
+              correct_answer, 
+              question_number,
+              created_at,
+              updated_at
+            FROM batch_data
+          `;
+        }
       }
 
       // Fetch the complete test with questions
-      const testWithQuestions = await prismaTx.mockTest.findUnique({
-        where: { id: createdTest.id },
-        include: { questions: true }
-      });
+      const testWithQuestions = await tx.$queryRaw`
+        SELECT 
+          mt.*,
+          (
+            SELECT COALESCE(jsonb_agg(
+              jsonb_build_object(
+                'id', mtq.id,
+                'question', mtq."questionText",
+                'options', mtq.options,
+                'selectedAnswer', NULL
+              )
+              ORDER BY mtq."questionNumber"
+            ), '[]'::jsonb)
+            FROM mock_test_questions mtq
+            WHERE mtq."testId" = mt.id
+          ) as questions
+        FROM mock_tests mt
+        WHERE mt.id = ${testId};
+      ` as Array<any>;
 
-      if (!testWithQuestions) {
+      if (!testWithQuestions?.[0]) {
         throw new Error('Failed to fetch created mock test');
       }
 
-      // Transform questions to match frontend's expected format
-      const formattedQuestions = (testWithQuestions.questions || []).map((q: any) => ({
-        id: q.id,
-        question: q.questionText,
-        options: q.options,
-        selectedAnswer: null // Frontend expects this field
-      }));
-
-      return {
-        ...testWithQuestions,
-        questions: formattedQuestions
-      };
-    });
+      return testWithQuestions[0];
+    }, transactionOptions);
 
     console.log('Successfully generated and stored mock test with ID:', mockTest.id);
     
