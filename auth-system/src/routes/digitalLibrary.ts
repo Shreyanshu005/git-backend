@@ -74,8 +74,7 @@ interface MockTest {
 
 // Extend the Prisma client type to include our custom models
 type ExtendedPrismaClient = PrismaClient & {
-  mockTest: any;
-  mockTestQuestion: any;
+  $queryRaw: <T = any>(query: TemplateStringsArray | string, ...values: any[]) => Promise<T[]>;
 };
 
 // Initialize Prisma client with proper typing
@@ -1093,39 +1092,33 @@ router.post('/mock-test/evaluate', authenticate, checkSubscription, async (req: 
 
     // Start a transaction for data consistency
     return await prisma.$transaction(async (tx) => {
-      // Get the test with questions using raw SQL with proper parameterization
-      const testResults = await tx.$queryRaw<Array<MockTest & { questions?: MockTestQuestion[] }>>`
-        SELECT 
-          mt.*,
-          (
-            SELECT COALESCE(jsonb_agg(
-              jsonb_build_object(
-                'id', mtq.id,
-                'questionNumber', mtq."questionNumber",
-                'questionText', mtq."questionText",
-                'options', mtq.options,
-                'correctAnswer', mtq."correctAnswer",
-                'testId', mtq."testId"
-              )
-              ORDER BY mtq."questionNumber"
-            ), '[]'::jsonb)
-            FROM mock_test_questions mtq
-            WHERE mtq."testId" = mt.id::text
-          ) as questions
-        FROM mock_tests mt
-        WHERE mt.id = ${testId}::uuid
-        LIMIT 1;
+      // First get the test
+      const testResults = await tx.$queryRaw<Array<MockTest>>`
+        SELECT * FROM mock_tests WHERE id = ${testId}::uuid LIMIT 1;
       `;
       
-      const test = testResults?.[0] || null;
-
-      if (!test) {
+      if (!testResults || testResults.length === 0) {
         console.log('Test not found:', { testId, userId });
         return res.status(404).json({ 
           success: false,
           error: 'Test not found'
         });
       }
+      
+      const testData = testResults[0];
+      
+      // Then get the questions separately
+      const questions = await tx.$queryRaw<MockTestQuestion[]>`
+        SELECT * FROM mock_test_questions 
+        WHERE "testId" = ${testId}::text 
+        ORDER BY "questionNumber" ASC;
+      `;
+      
+      // Combine test with questions
+      const test = {
+        ...testData,
+        questions: questions || []
+      } as MockTest & { questions: MockTestQuestion[] };
 
       // Check if test has expired
       if (test.expiresAt && new Date() > new Date(test.expiresAt)) {
