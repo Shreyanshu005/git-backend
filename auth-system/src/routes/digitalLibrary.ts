@@ -29,47 +29,33 @@ interface MockTest {
   };
 }
 
-// Extend the Prisma client with our custom models
-type ExtendedPrismaClient = PrismaClient & {
-  mockTest: {
-    create: (args: { 
-      data: { 
-        subject: string; 
-        difficulty: string; 
-        userId: string; 
-        expiresAt?: Date; 
-        questions?: { 
-          create: Array<{
-            questionNumber: number;
-            question: string;
-            options: string[];
-            correctAnswer: number;
-            explanation: string;
-          }> 
-        };
-      } 
-    }) => Promise<MockTest>;
-    findUnique: (args: { 
-      where: { id: string };
-      include?: { questions: { orderBy: { questionNumber: 'asc' } } };
-    }) => Promise<(MockTest & { questions?: MockTestQuestion[] }) | null>;
-    findMany: (args?: any) => Promise<MockTest[]>;
-    delete: (args: { where: { id: string } }) => Promise<MockTest>;
-  };
-  mockTestQuestion: {
-    findMany: (args: { 
-      where: { testId: string };  // Changed from mockTestId to testId
-      orderBy: { questionNumber: 'asc' };
-    }) => Promise<MockTestQuestion[]>;
-    createMany: (args: {
-      data: Array<{
-        testId: string;
-        questionNumber: number;
-        questionText: string;
-        options: string[];
-        correctAnswer: number;
-      }>;
-    }) => Promise<{ count: number }>;
+
+
+// Define types for mock test questions
+interface MockTestQuestion {
+  id: string;
+  questionNumber: number;
+  questionText: string;
+  options: string[];
+  correctAnswer: number;
+  testId: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+// Define the MockTest type with questions
+interface MockTest {
+  id: string;
+  subject: string;
+  difficulty: string;
+  userId: string;
+  expiresAt: Date;
+  questions?: MockTestQuestion[];
+  createdAt: Date;
+  updatedAt: Date;
+  user?: {
+    id: string;
+    name: string;
   };
 };
 // import { uploadToS3, deleteFromS3 } from '../utils/s3';
@@ -112,9 +98,49 @@ const checkSubscription = async (req: any, res: any, next: any) => {
 
 
 const router = express.Router();
-const prisma = new PrismaClient() as ExtendedPrismaClient;
 
-// Prisma client is already properly typed, no need for custom extension
+// Define types for mock test questions
+interface MockTestQuestion {
+  id: string;
+  questionNumber: number;
+  questionText: string;
+  options: string[];
+  correctAnswer: number;
+  testId: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+// Define the MockTest type with questions
+interface MockTest {
+  id: string;
+  subject: string;
+  difficulty: string;
+  userId: string;
+  expiresAt: Date;
+  questions?: MockTestQuestion[];
+  createdAt: Date;
+  updatedAt: Date;
+  user?: {
+    id: string;
+    name: string;
+  };
+}
+
+
+
+
+
+// Extend the Prisma client type to include our models
+type ExtendedPrismaClient = PrismaClient & {
+  mockTest: any;
+  mockTestQuestion: any;
+};
+
+// Initialize Prisma client with proper typing
+const prisma = new PrismaClient({
+  log: ['query', 'info', 'warn', 'error'],
+}) as unknown as ExtendedPrismaClient;
 
 
 // Get all e-books (public endpoint)
@@ -783,12 +809,10 @@ router.post('/mock-test/generate', authenticate, checkSubscription, async (req, 
       });
     }
     
-    // Store questions in the database
-    const mockTest = await prisma.$transaction(async (tx) => {
-      const extendedTx = tx as unknown as ExtendedPrismaClient;
-      
-      // First, create the mock test
-      const createdTest = await extendedTx.mockTest.create({
+    // Create mock test and questions in a transaction
+    const mockTest = await prisma.$transaction(async (tx: any) => {
+      // Create the mock test
+      const createdTest = await tx.mockTest.create({
         data: {
           subject,
           difficulty,
@@ -799,34 +823,29 @@ router.post('/mock-test/generate', authenticate, checkSubscription, async (req, 
 
       // Create questions if they exist
       if (questions && questions.length > 0) {
-        await extendedTx.mockTestQuestion.createMany({
+        await tx.mockTestQuestion.createMany({
           data: questions.map((q, index) => ({
             testId: createdTest.id,
             questionText: q.question,
             questionNumber: index + 1,
             options: q.options,
             correctAnswer: q.correctAnswer
-            // Removed explanation field as it's not in the Prisma schema
           }))
         });
       }
 
       // Fetch the complete test with questions
-      const mockTestWithQuestions = await extendedTx.mockTest.findUnique({
+      const testWithQuestions = await tx.mockTest.findUnique({
         where: { id: createdTest.id },
-        include: {
-          questions: {
-            orderBy: { questionNumber: 'asc' }
-          }
-        }
+        include: { questions: true }
       });
 
-      if (!mockTestWithQuestions) {
+      if (!testWithQuestions) {
         throw new Error('Failed to fetch created mock test');
       }
 
       // Transform questions to match frontend's expected format
-      const formattedQuestions = (mockTestWithQuestions.questions || []).map((q: any) => ({
+      const formattedQuestions = (testWithQuestions.questions || []).map((q: any) => ({
         id: q.id,
         question: q.questionText,
         options: q.options,
@@ -834,7 +853,7 @@ router.post('/mock-test/generate', authenticate, checkSubscription, async (req, 
       }));
 
       return {
-        ...mockTestWithQuestions,
+        ...testWithQuestions,
         questions: formattedQuestions
       };
     });
@@ -946,17 +965,16 @@ async function cleanupOldMockTests() {
     await prisma.$transaction([
       // Delete questions first due to foreign key constraints
       prisma.$executeRaw`
-        DELETE FROM "MockTestQuestion"
+        DELETE FROM mock_test_questions
         WHERE "testId" IN (
-          SELECT id FROM "MockTest" 
+          SELECT id FROM mock_tests 
           WHERE "createdAt" < ${formattedDate}::timestamp
         )
       `,
       // Then delete the tests
       prisma.$executeRaw`
-        DELETE FROM "MockTest" 
+        DELETE FROM mock_tests 
         WHERE "createdAt" < ${formattedDate}::timestamp
-        RETURNING id
       `
     ]);
     
