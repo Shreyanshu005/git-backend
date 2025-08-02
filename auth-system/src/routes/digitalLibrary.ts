@@ -810,9 +810,11 @@ router.post('/mock-test/generate', authenticate, checkSubscription, async (req, 
     }
     
     // Create mock test and questions in a transaction
-    const mockTest = await prisma.$transaction(async (tx: any) => {
+    const mockTest = await prisma.$transaction(async (tx) => {
+      // Cast to any to bypass TypeScript errors for now
+      const prismaTx = tx as any;
       // Create the mock test
-      const createdTest = await tx.mockTest.create({
+      const createdTest = await prismaTx.mockTest.create({
         data: {
           subject,
           difficulty,
@@ -823,7 +825,7 @@ router.post('/mock-test/generate', authenticate, checkSubscription, async (req, 
 
       // Create questions if they exist
       if (questions && questions.length > 0) {
-        await tx.mockTestQuestion.createMany({
+        await prismaTx.mockTestQuestion.createMany({
           data: questions.map((q, index) => ({
             testId: createdTest.id,
             questionText: q.question,
@@ -835,7 +837,7 @@ router.post('/mock-test/generate', authenticate, checkSubscription, async (req, 
       }
 
       // Fetch the complete test with questions
-      const testWithQuestions = await tx.mockTest.findUnique({
+      const testWithQuestions = await prismaTx.mockTest.findUnique({
         where: { id: createdTest.id },
         include: { questions: true }
       });
@@ -960,23 +962,30 @@ async function cleanupOldMockTests() {
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     const formattedDate = sevenDaysAgo.toISOString();
     
-    // Use raw SQL to delete old tests and their questions
-    // This is a workaround for TypeScript errors with the Prisma client
-    await prisma.$transaction([
+    // Use a transaction to delete old tests and their questions
+    await prisma.$transaction(async (tx) => {
+      const prismaTx = tx as any;
+      
       // Delete questions first due to foreign key constraints
-      prisma.$executeRaw`
-        DELETE FROM mock_test_questions
-        WHERE "testId" IN (
-          SELECT id FROM mock_tests 
-          WHERE "createdAt" < ${formattedDate}::timestamp
-        )
-      `,
+      await prismaTx.mockTestQuestion.deleteMany({
+        where: {
+          test: {
+            createdAt: {
+              lt: formattedDate
+            }
+          }
+        }
+      });
+      
       // Then delete the tests
-      prisma.$executeRaw`
-        DELETE FROM mock_tests 
-        WHERE "createdAt" < ${formattedDate}::timestamp
-      `
-    ]);
+      await prismaTx.mockTest.deleteMany({
+        where: {
+          createdAt: {
+            lt: formattedDate
+          }
+        }
+      });
+    });
     
     console.log('Cleanup job completed');
   } catch (error) {
