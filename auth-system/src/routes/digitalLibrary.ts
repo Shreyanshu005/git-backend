@@ -97,8 +97,8 @@ const checkSubscription = async (req: any, res: any, next: any) => {
 
     if (!subscription) {
       return res.status(403).json({ 
-        error: 'Subscription required',
-        message: 'You need an active digital library subscription to access this feature.'
+        error: 'Maheshan Digital Library subscription required',
+        message: 'You need an active Maheshan Digital Library subscription to access this feature.'
       });
     }
 
