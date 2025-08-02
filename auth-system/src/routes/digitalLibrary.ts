@@ -1110,7 +1110,7 @@ router.post('/mock-test/evaluate', authenticate, checkSubscription, async (req: 
               ORDER BY mtq."questionNumber"
             ), '[]'::jsonb)
             FROM mock_test_questions mtq
-            WHERE mtq."testId" = mt.id
+            WHERE mtq."testId" = mt.id::text
           ) as questions
         FROM mock_tests mt
         WHERE mt.id = ${testId}::uuid
