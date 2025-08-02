@@ -1091,119 +1091,163 @@ router.post('/mock-test/evaluate', authenticate, checkSubscription, async (req: 
       });
     }
 
-    // Get the test with questions
-    const test = await (prisma as ExtendedPrismaClient).mockTest.findUnique({
-      where: { id: testId },
-      include: {
-        questions: {
-          orderBy: {
-            questionNumber: 'asc',
-          },
-        },
-      },
-    }) as (MockTest & { questions?: MockTestQuestion[] }) | null;
-
-    if (!test) {
-      console.log('Test not found or access denied:', { testId, userId });
-      return res.status(404).json({ 
-        success: false,
-        error: 'Test not found or access denied'
-      });
-    }
-
-    // Check if test has expired
-    if (test.expiresAt && new Date() > new Date(test.expiresAt)) {
-      return res.status(400).json({ success: false, error: 'This test has expired' });
-    }
-
-    // Check if test belongs to the authenticated user
-    const currentUserId = (req as any)?.user?.userId || (req as any)?.user?.id;
-    if (test.userId !== currentUserId) {
-      console.error('Unauthorized access attempt:', { 
-        testUserId: test.userId, 
-        currentUserId,
-        user: (req as any)?.user 
-      });
-      return res.status(403).json({ 
-        success: false, 
-        error: 'Unauthorized access to this test',
-        details: 'Test does not belong to the current user',
-        testUserId: test.userId,
-        currentUserId
-      });
-    }
-
-    // Create a map of question IDs to questions for quick lookup
-    interface QuestionWithAnswers {
-      id: string;
-      questionNumber: number;
-      correctAnswer: number;
-      options: string[];
-    }
-
-    const questionMap = new Map<string, QuestionWithAnswers>(
-      (test.questions || []).map((q) => [q.id, q as QuestionWithAnswers])
-    );
-    
-    // Ensure we have questions before proceeding
-    if (!test.questions || test.questions.length === 0) {
-      return res.status(400).json({ error: 'No questions found for this test' });
-    }
-
-    // Validate all answers reference existing questions
-    const invalidQuestions = answers.some((a: Answer) => !questionMap.has(a.questionId));
-    if (invalidQuestions) {
-      return res.status(400).json({ success: false, error: 'One or more questions not found in this test' });
-    }
-
-    // Evaluate each answer
-    let correctCount = 0;
-    const questionResults = answers.map((answer: Answer) => {
-      const question = questionMap.get(answer.questionId)!;
-      const isCorrect = question.correctAnswer === answer.selectedAnswer;
+    // Start a transaction for data consistency
+    return await prisma.$transaction(async (tx) => {
+      // Get the test with questions using raw SQL with proper parameterization
+      const testResults = await tx.$queryRaw<Array<MockTest & { questions?: MockTestQuestion[] }>>`
+        SELECT 
+          mt.*,
+          (
+            SELECT COALESCE(jsonb_agg(
+              jsonb_build_object(
+                'id', mtq.id,
+                'questionNumber', mtq."questionNumber",
+                'questionText', mtq."questionText",
+                'options', mtq.options,
+                'correctAnswer', mtq."correctAnswer",
+                'testId', mtq."testId"
+              )
+              ORDER BY mtq."questionNumber"
+            ), '[]'::jsonb)
+            FROM mock_test_questions mtq
+            WHERE mtq."testId" = mt.id
+          ) as questions
+        FROM mock_tests mt
+        WHERE mt.id = ${testId}::uuid
+        LIMIT 1;
+      `;
       
-      if (isCorrect) correctCount++;
+      const test = testResults?.[0] || null;
+
+      if (!test) {
+        console.log('Test not found:', { testId, userId });
+        return res.status(404).json({ 
+          success: false,
+          error: 'Test not found'
+        });
+      }
+
+      // Check if test has expired
+      if (test.expiresAt && new Date() > new Date(test.expiresAt)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'This test has expired',
+          details: `Test expired on ${test.expiresAt}`
+        });
+      }
+
+      // Verify test ownership
+      const currentUserId = (req as any)?.user?.userId || (req as any)?.user?.id;
+      if (test.userId !== currentUserId) {
+        console.error('Unauthorized access attempt:', { 
+          testUserId: test.userId, 
+          currentUserId,
+          user: (req as any)?.user 
+        });
+        return res.status(403).json({ 
+          success: false, 
+          error: 'Unauthorized access to this test',
+          details: 'Test does not belong to the current user',
+          testUserId: test.userId,
+          currentUserId
+        });
+      }
+
+      // Type for question with answers
+      interface QuestionWithAnswers {
+        id: string;
+        questionNumber: number;
+        correctAnswer: number;
+        options: string[];
+        testId: string;
+      }
+
+      // Validate questions data
+      if (!test.questions || !Array.isArray(test.questions) || test.questions.length === 0) {
+        return res.status(400).json({ 
+          success: false,
+          error: 'No questions found for this test',
+          testId: test.id
+        });
+      }
+
+      // Create a map of question IDs to questions for quick lookup
+      const questionMap = new Map<string, QuestionWithAnswers>();
+      for (const q of test.questions) {
+        if (q && q.id && q.testId === testId) {
+          questionMap.set(q.id, q as QuestionWithAnswers);
+        }
+      }
+
+      // Validate all answers reference existing questions
+      const invalidQuestions = answers.filter(a => !questionMap.has(a.questionId));
+      if (invalidQuestions.length > 0) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'One or more questions not found in this test',
+          invalidQuestionIds: invalidQuestions.map(q => q.questionId),
+          testId: test.id,
+          validQuestionIds: Array.from(questionMap.keys())
+        });
+      }
+
+      // Evaluate each answer
+      let correctCount = 0;
+      const questionResults: QuestionResult[] = [];
       
-      return {
-        questionId: question.id,
-        questionNumber: question.questionNumber,
-        isCorrect,
-        selectedAnswer: answer.selectedAnswer,
-        correctAnswer: question.correctAnswer,
-        options: question.options
-      } as QuestionResult;
-    });
+      for (const answer of answers) {
+        const question = questionMap.get(answer.questionId);
+        if (!question) continue;
+        
+        // Ensure selectedAnswer is a number for comparison
+        const selectedAnswer = typeof answer.selectedAnswer === 'string' 
+          ? parseInt(answer.selectedAnswer, 10) 
+          : answer.selectedAnswer;
+          
+        const isCorrect = question.correctAnswer === selectedAnswer;
+        if (isCorrect) correctCount++;
+        
+        questionResults.push({
+          questionId: question.id,
+          questionNumber: question.questionNumber,
+          isCorrect,
+          selectedAnswer,
+          correctAnswer: question.correctAnswer,
+          options: question.options
+        });
+      }
 
-    // Calculate score
-    const totalQuestions = test.questions?.length ?? 0;
-    const score = Math.round((correctCount / totalQuestions) * 100);
-    const incorrectCount = answers.length - correctCount;
-    const skippedCount = totalQuestions - answers.length;
+      // Calculate score and metrics
+      const totalQuestions = test.questions?.length ?? 0;
+      const score = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
+      const incorrectCount = answers.length - correctCount;
+      const skippedCount = Math.max(0, totalQuestions - answers.length);
 
-    // Prepare initial result
-    const result: EvaluationResult = {
-      success: true,
-      score,
-      totalQuestions,
-      correctAnswers: correctCount,
-      incorrectAnswers: incorrectCount,
-      skipped: skippedCount,
-      questionResults,
-      analysis: ''
-    };
+      // Prepare initial result
+      const result: EvaluationResult = {
+        success: true,
+        score,
+        totalQuestions,
+        correctAnswers: correctCount,
+        incorrectAnswers: incorrectCount,
+        skipped: skippedCount,
+        questionResults,
+        analysis: ''
+      };
 
-    console.log(`Test evaluation completed: ${score}% (${correctCount}/${test.questions?.length ?? 0} correct)`);
-    
-    try {
-      // Generate analysis using Gemini
-      const apiKey = validateGeminiKey();
+      console.log(`Test evaluation completed: ${score}% (${correctCount}/${totalQuestions} correct)`);
       
-      // Create a more detailed prompt with question analysis
-      const questionAnalysis = questionResults.map((result, i) => {
-        return `Question ${i + 1}: ${result.isCorrect ? '✓' : '✗'}`;
-      }).join('\n');
+      // Generate analysis using Gemini if API key is available
+      if (process.env.GEMINI_API_KEY) {
+        try {
+          const apiKey = validateGeminiKey();
+          
+          // Create a detailed prompt with question analysis
+          const questionAnalysis = questionResults.map((result, i) => 
+            `Question ${i + 1}: ${result.isCorrect ? '✓' : '✗'}`
+          ).join('\n');
 
-      const prompt = `As an UPSC exam expert, analyze this test performance and provide structured feedback:
+          const prompt = `As an UPSC exam expert, analyze this test performance and provide structured feedback:
 
 Test Results:
 - Total Questions: ${result.totalQuestions}
@@ -1222,48 +1266,73 @@ Please provide:
 
 Keep the response concise and actionable.`;
 
-      console.log('Sending request to Gemini API...');
-      
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              temperature: 0.7,
-              topK: 40,
-              topP: 0.95,
-              maxOutputTokens: 1024
+          console.log('Sending request to Gemini API...');
+          
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                  temperature: 0.7,
+                  topK: 40,
+                  topP: 0.95,
+                  maxOutputTokens: 1024
+                }
+              })
             }
-          })
+          );
+
+          if (!response.ok) {
+            throw new Error(`Gemini API responded with status ${response.status}`);
+          }
+
+          const data = await response.json() as GeminiResponse;
+          
+          // Add the analysis to the result
+          result.analysis = data.candidates?.[0]?.content?.parts?.[0]?.text || 
+            'Analysis not available. Please review your answers and try again.';
+          
+        } catch (error) {
+          console.error('Error generating analysis with Gemini:', error);
+          // Continue with the result even if analysis fails
+          result.analysis = 'Performance analysis could not be generated at this time.';
         }
-      );
-
-      if (!response.ok) {
-        throw new Error(`Gemini API responded with status ${response.status}`);
       }
-
-      const data = await response.json() as GeminiResponse;
-      
-      // Add the analysis to the result
-      result.analysis = data.candidates?.[0]?.content?.parts?.[0]?.text || 
-        'Analysis not available. Please review your answers and try again.';
-      
-    } catch (error) {
-      console.error('Error generating analysis with Gemini:', error);
-      // Continue with the result even if analysis fails
-      result.analysis = 'Performance analysis could not be generated at this time.';
-    }
     
-    res.json(result);
+      // Return the evaluation result
+      return res.json(result);
+    }, {
+      // Transaction options
+      maxWait: 10000, // 10 seconds
+      timeout: 30000, // 30 seconds
+      isolationLevel: 'ReadCommitted'
+    });
   } catch (error) {
     console.error('Error evaluating mock test:', error);
-    res.status(500).json({ 
+    // Check for specific error types to provide better error messages
+    if (error.code === 'P2025') { // Prisma not found error code
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Test not found or access denied',
+        details: error.meta?.cause || 'The requested test could not be found'
+      });
+    } else if (error.code === 'P2023') { // Invalid UUID format
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Invalid test ID format',
+        details: 'The provided test ID is not in the correct format'
+      });
+    }
+    
+    // Generic error response
+    return res.status(500).json({ 
       success: false, 
       error: 'Failed to evaluate test',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      details: error instanceof Error ? error.message : 'An unknown error occurred',
+      ...(process.env.NODE_ENV === 'development' ? { stack: error.stack } : {})
     });
   }
 });
