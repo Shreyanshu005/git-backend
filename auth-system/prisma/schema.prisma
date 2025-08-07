@@ -155,3 +155,24 @@ model DigitalLibrarySubscription {
 
   @@map("digital_library_subscriptions")
 }
+
+model AvsarRegistration {
+  id          String   @id @default(uuid())
+  name        String   @db.VarChar(100)
+  email       String   @db.VarChar(100)
+  phone       String   @db.VarChar(15)
+  college     String
+  enrollment  String   @db.VarChar(10)
+  isActive    Boolean  @default(true)
+  activity    String
+  designExp   String   @map("design_exp")
+  skills      String
+  commitment  String
+  sop         String   @db.Text
+  status      String   @default("pending") // pending, reviewed, accepted, rejected
+  notes       String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("avsar_registrations")
+}

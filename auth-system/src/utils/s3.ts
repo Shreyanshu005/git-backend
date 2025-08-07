@@ -2,7 +2,7 @@ import { S3Client, DeleteObjectCommand, GetObjectCommand, PutObjectCommand } fro
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import multer from 'multer';
 import multerS3 from 'multer-s3';
-import { Request } from 'express';
+// Multer S3 configuration
 
 // Initialize S3 client
 const s3Client = new S3Client({
@@ -21,16 +21,16 @@ export const uploadToS3 = (folder: string) => {
     storage: multerS3({
       s3: s3Client,
       bucket: BUCKET_NAME,
-      metadata: function (_req: Request, file: Express.Multer.File, cb: (error: any, metadata?: any) => void) {
+      metadata: function (_req: any, file: Express.Multer.File, cb: (error: any, metadata?: any) => void) {
         cb(null, { fieldName: file.fieldname });
       },
-      key: function (_req: Request, file: Express.Multer.File, cb: (error: any, key?: string) => void) {
+key: function (_req: any, file: Express.Multer.File, cb: (error: any, key?: string) => void) {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         const fileName = `${folder}/${uniqueSuffix}-${file.originalname}`;
         cb(null, fileName);
       },
     }),
-    fileFilter: (_req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+fileFilter: (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
       // Allow PDFs for current affairs and DPQ
       if (folder === 'current-affairs' || folder === 'dpq') {
         if (file.mimetype !== 'application/pdf') {
