@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../config/database';
 const { validationResult } = require('express-validator');
 
 // Type assertion for the validation result
@@ -10,8 +10,6 @@ declare global {
     }
   }
 }
-
-const prisma = new PrismaClient();
 
 interface AvsarRegistrationData {
   name: string;
