@@ -26,10 +26,20 @@ interface AvsarRegistrationData {
 
 export const registerForAvsar = async (req: Request, res: Response) => {
   try {
+    console.log('Received registration request:', JSON.stringify(req.body, null, 2));
+    
     // Validate request body
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      console.error('Validation errors:', errors.array());
+      return res.status(400).json({ 
+        error: 'Validation failed',
+        details: errors.array().map((err: { param: string; msg: string; value: any }) => ({
+          param: err.param,
+          msg: err.msg,
+          value: err.value
+        }))
+      });
     }
 
     const {
