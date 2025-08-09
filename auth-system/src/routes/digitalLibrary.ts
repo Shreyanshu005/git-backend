@@ -1,5 +1,6 @@
 import express from 'express';
 import { PrismaClient } from '@prisma/client';
+import { uploadToS3, getPublicUrl } from '../utils/s3';
 
 // Define types for mock test questions
 interface MockTestQuestion {
@@ -120,6 +121,82 @@ const checkSubscription = async (req: any, res: any, next: any) => {
 
 const router = express.Router();
 
+// File upload endpoint for digital library
+router.post('/upload', authenticate, uploadToS3('digital-library').fields([
+  { name: 'coverImage', maxCount: 1 },
+  { name: 'pdfFile', maxCount: 1 }
+]), async (req, res) => {
+  console.log('Upload endpoint hit');
+  try {
+    interface UploadedFile extends Express.Multer.File {
+      key: string;
+      location: string;
+      size: number;
+    }
+    
+    const files = req.files as { 
+      coverImage?: UploadedFile[], 
+      file?: UploadedFile[] 
+    };
+    
+    console.log('Files received:', Object.keys(files));
+    
+    // Validate required files
+    if (!files.coverImage?.[0] || !files.file?.[0]) {
+      const errorMessage = !files.coverImage?.[0] 
+        ? 'Cover image is required' 
+        : 'PDF file is required';
+      console.error('Validation error:', errorMessage);
+      return res.status(400).json({ 
+        success: false,
+        error: errorMessage 
+      });
+    }
+
+    // Get file size in MB
+    const fileSize = (files.file[0].size / (1024 * 1024)).toFixed(2);
+    
+    // Generate pre-signed URLs for the uploaded files (valid for 1 hour)
+    const [coverImageUrl, fileUrl] = await Promise.all([
+      getPublicUrl(files.coverImage[0].key),
+      getPublicUrl(files.file[0].key)
+    ]);
+
+    // Save to database
+    const ebook = await prisma.eBook.create({
+      data: {
+        title: req.body.title || 'Untitled',
+        author: req.body.author || 'Unknown',
+        category: req.body.category || 'General',
+        pages: parseInt(req.body.pages) || 0,
+        language: req.body.language || 'English',
+        coverImage: coverImageUrl,
+        fileUrl: fileUrl,
+        fileSize: `${fileSize} MB`,
+        description: req.body.description || '',
+        subtitle: req.body.subtitle || ''
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: 'E-book uploaded successfully',
+      data: {
+        id: ebook.id,
+        title: ebook.title,
+        coverImageUrl,
+        fileUrl,
+        fileSize: `${fileSize} MB`
+      }
+    });
+  } catch (error) {
+    console.error('Error handling file upload:', error);
+    return res.status(500).json({ 
+      error: 'Failed to process file upload' 
+    });
+  }
+});
+
 // Define types for mock test questions
 interface MockTestQuestion {
   id: string;
@@ -198,6 +275,7 @@ router.get('/ebooks', async (req, res) => {
           author: true,
           category: true,
           coverImage: true,
+          fileUrl: true,
           fileSize: true,
           pages: true,
           language: true,
@@ -288,7 +366,7 @@ router.get('/ebooks/:id/download', authenticate, async (req, res) => {
 
     // Return the PDF URL for download
     return res.json({ 
-      downloadUrl: ebook.pdfUrl,
+      downloadUrl: ebook.fileUrl,
       title: ebook.title
     });
   } catch (error) {
@@ -389,14 +467,18 @@ router.post('/subscription/create', authenticate, async (req, res) => {
 // Admin endpoints for managing e-books (simplified without S3)
 router.post('/admin/ebooks', authenticate, async (req, res) => {
   try {
-    const userId = (req.user as any)?.id;
+    const userId = req.user?.userId;
+    
+    if (!userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
     // Check if user is admin
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user?.isAdmin) {
       return res.status(403).json({ error: 'Admin access required' });
     }
     
-    const { title, subtitle, description, author, category, pages, language, coverImage, pdfUrl, fileSize } = req.body;
+    const { title, subtitle, description, author, category, pages, language, coverImage, fileUrl, fileSize } = req.body;
     
     if (!title || !author || !category) {
       return res.status(400).json({ error: 'Title, author, and category are required' });
@@ -410,7 +492,7 @@ router.post('/admin/ebooks', authenticate, async (req, res) => {
         author,
         category,
         coverImage: coverImage || '/uploads/default-cover.jpg',
-        pdfUrl: pdfUrl || '/uploads/sample.pdf',
+        fileUrl: fileUrl || '/uploads/sample.pdf',
         fileSize: fileSize || '2.5 MB',
         pages: parseInt(pages) || 100,
         language: language || 'English'
@@ -427,49 +509,62 @@ router.post('/admin/ebooks', authenticate, async (req, res) => {
     });
   } catch (error) {
     console.error('Error creating e-book:', error);
-    return res.status(500).json({ error: 'Failed to create e-book' });
+    
+    // Check for Prisma validation errors
+    if (error instanceof Error) {
+      console.error('Error details:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
+      
+      // Check for Prisma known errors
+      if (error.message.includes('prisma')) {
+        return res.status(500).json({ 
+          error: 'Database error',
+          details: error.message,
+          code: error.name
+        });
+      }
+      
+      // Check for validation errors
+      if (error.message.includes('missing') || error.message.includes('required')) {
+        return res.status(400).json({
+          error: 'Validation error',
+          details: error.message
+        });
+      }
+    }
+    
+    // Default error response
+    return res.status(500).json({ 
+      error: 'Failed to create e-book',
+      details: error instanceof Error ? error.message : 'Unknown error occurred'
+    });
   }
 });
 
 // Update e-book - TEMPORARILY DISABLED
 // router.put('/admin/ebooks/:id', authenticate, uploadToS3('digital-library').fields([
 //   { name: 'coverImage', maxCount: 1 },
-//   { name: 'pdfFile', maxCount: 1 }
+//   { name: 'file', maxCount: 1 }
 // ]), async (req, res) => {
 //   try {
 //     const userId = (req.user as any)?.id;
 //     const { id } = req.params;
-//     // Check if user is admin
-//     const user = await prisma.user.findUnique({ where: { id: userId } });
-//     if (!user?.isAdmin) {
-//       return res.status(403).json({ error: 'Admin access required' });
 //     }
-//     const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-//     const updateData: any = { ...req.body };
-//     // If coverImage is being updated, delete old image from S3
-//     if (files.coverImage?.[0]) {
+//     // If file is being updated, delete old PDF from S3
+//     if (files.file?.[0]) {
 //       const existingEbook = await prisma.eBook.findUnique({ where: { id } });
-//       if (existingEbook && existingEbook.coverImage && existingEbook.coverImage !== files.coverImage[0].location) {
+//       if (existingEbook && existingEbook.fileUrl && existingEbook.fileUrl !== files.file[0].location) {
 //         try {
-//           await deleteFromS3(existingEbook.coverImage);
+//           await deleteFromS3(existingEbook.fileUrl);
 //         } catch (s3Error) {
 //           console.error('S3 delete error:', s3Error);
 //         }
 //       }
-//       updateData.coverImage = files.coverImage[0].location;
-//     }
-//     // If pdfFile is being updated, delete old PDF from S3
-//     if (files.pdfFile?.[0]) {
-//       const existingEbook = await prisma.eBook.findUnique({ where: { id } });
-//       if (existingEbook && existingEbook.pdfUrl && existingEbook.pdfUrl !== files.pdfFile[0].location) {
-//         try {
-//           await deleteFromS3(existingEbook.pdfUrl);
-//         } catch (s3Error) {
-//           console.error('S3 delete error:', s3Error);
-//         }
-//       }
-//       updateData.pdfUrl = files.pdfFile[0].location;
-//       updateData.fileSize = `${(files.pdfFile[0].size / (1024 * 1024)).toFixed(1)} MB`;
+//       updateData.fileUrl = files.file[0].location;
+//       updateData.fileSize = `${(files.file[0].size / (1024 * 1024)).toFixed(1)} MB`;
 //     }
 //     if (updateData.pages) {
 //       updateData.pages = parseInt(updateData.pages);
@@ -516,9 +611,9 @@ router.delete('/admin/ebooks/:id', authenticate, async (req, res) => {
     //     console.error('S3 delete error:', s3Error);
     //   }
     // }
-    // if (existingEbook.pdfUrl) {
+    // if (existingEbook.fileUrl) {
     //   try {
-    //     await deleteFromS3(existingEbook.pdfUrl);
+    //     await deleteFromS3(existingEbook.fileUrl);
     //   } catch (s3Error) {
     //     console.error('S3 delete error:', s3Error);
     //   }
@@ -571,7 +666,7 @@ router.post('/seed-ebooks', authenticate, async (req, res) => {
         author: 'IAS Academy',
         category: 'UPSC',
         coverImage: '/uploads/upsc-guide.jpg',
-        pdfUrl: '/uploads/upsc-complete-guide.pdf',
+        fileUrl: '/uploads/upsc-complete-guide.pdf',
         fileSize: '15.2 MB',
         pages: 450,
         language: 'English'
@@ -583,7 +678,7 @@ router.post('/seed-ebooks', authenticate, async (req, res) => {
         author: 'Constitutional Expert',
         category: 'General Studies',
         coverImage: '/uploads/polity.jpg',
-        pdfUrl: '/uploads/indian-polity.pdf',
+        fileUrl: '/uploads/indian-polity.pdf',
         fileSize: '8.7 MB',
         pages: 320,
         language: 'English'
@@ -595,7 +690,7 @@ router.post('/seed-ebooks', authenticate, async (req, res) => {
         author: 'Economic Analyst',
         category: 'General Studies',
         coverImage: '/uploads/economy.jpg',
-        pdfUrl: '/uploads/indian-economy.pdf',
+        fileUrl: '/uploads/indian-economy.pdf',
         fileSize: '12.1 MB',
         pages: 380,
         language: 'English'
@@ -607,7 +702,7 @@ router.post('/seed-ebooks', authenticate, async (req, res) => {
         author: 'Geography Expert',
         category: 'General Studies',
         coverImage: '/uploads/geography.jpg',
-        pdfUrl: '/uploads/geography-india-world.pdf',
+        fileUrl: '/uploads/geography-india-world.pdf',
         fileSize: '10.5 MB',
         pages: 290,
         language: 'English'
@@ -619,7 +714,7 @@ router.post('/seed-ebooks', authenticate, async (req, res) => {
         author: 'BPSC Expert',
         category: 'BPSC',
         coverImage: '/uploads/bpsc.jpg',
-        pdfUrl: '/uploads/bpsc-strategy.pdf',
+        fileUrl: '/uploads/bpsc-strategy.pdf',
         fileSize: '9.3 MB',
         pages: 280,
         language: 'English'
@@ -631,7 +726,7 @@ router.post('/seed-ebooks', authenticate, async (req, res) => {
         author: 'UPPCS Expert',
         category: 'UPPCS',
         coverImage: '/uploads/uppcs.jpg',
-        pdfUrl: '/uploads/uppcs-study-material.pdf',
+        fileUrl: '/uploads/uppcs-study-material.pdf',
         fileSize: '11.8 MB',
         pages: 350,
         language: 'English'
@@ -978,6 +1073,107 @@ interface EvaluationResult {
   error?: string;
 }
 
+// Admin-only endpoint to delete an e-book
+router.delete('/ebooks/:id', authenticate, async (req, res) => {
+  let ebook;
+  try {
+    console.log('Delete e-book request received:', req.params);
+    const { id } = req.params;
+    const userId = (req as any)?.user?.userId;
+    
+    if (!userId) {
+      console.error('No user ID found in request');
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    
+    // Check if user is admin
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { isAdmin: true }
+    });
+    
+    if (!user) {
+      console.error('User not found:', userId);
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    if (!user.isAdmin) {
+      console.error('Non-admin user attempted to delete e-book:', userId);
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    // Find the e-book to get file URLs for cleanup
+    ebook = await prisma.eBook.findUnique({
+      where: { id },
+      select: { 
+        id: true, 
+        title: true, 
+        coverImage: true, 
+        fileUrl: true 
+      }
+    });
+    
+    if (!ebook) {
+      console.error('E-book not found:', id);
+      return res.status(404).json({ error: 'E-book not found' });
+    }
+    
+    console.log('Deleting e-book:', { id: ebook.id, title: ebook.title });
+    
+    // Delete the e-book record
+    await prisma.eBook.delete({
+      where: { id }
+    });
+    
+    console.log('Successfully deleted e-book from database:', id);
+    
+    // Delete files from S3
+    try {
+      const { deleteFromS3 } = require('../utils/s3');
+      
+      // Delete cover image if it exists
+      if (ebook.coverImage) {
+        console.log('Deleting cover image from S3:', ebook.coverImage);
+        await deleteFromS3(ebook.coverImage).catch((error: Error) => 
+          console.error('Error deleting cover image from S3:', error)
+        );
+      }
+      
+      // Delete PDF file if it exists
+      if (ebook.fileUrl) {
+        console.log('Deleting PDF file from S3:', ebook.fileUrl);
+        await deleteFromS3(ebook.fileUrl).catch((error: any) => 
+          console.error('Error deleting PDF file from S3:', error)
+        );
+      }
+      
+      console.log('Successfully deleted all files from S3 for e-book:', id);
+    } catch (s3Error) {
+      console.error('Error deleting files from S3:', s3Error);
+      // Continue with the response even if S3 deletion fails
+    }
+    
+    return res.json({ 
+      success: true, 
+      message: 'E-book and associated files deleted successfully',
+      deletedEbook: { id: ebook.id, title: ebook.title }
+    });
+  } catch (error) {
+    console.error('Error deleting e-book:', error);
+    
+    // Provide more detailed error information
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    
+    return res.status(500).json({ 
+      error: 'Failed to delete e-book',
+      details: errorMessage,
+      stack: process.env.NODE_ENV === 'development' ? errorStack : undefined,
+      partialData: ebook ? { id: ebook.id, title: ebook.title } : undefined
+    });
+  }
+});
+
 // Verify Gemini API key configuration
 router.get('/mock-test/verify-api', authenticate, async (_req, res) => {
   try {
@@ -1026,6 +1222,68 @@ router.get('/mock-test/verify-api', authenticate, async (_req, res) => {
       success: false,
       error: 'Failed to verify Gemini API key',
       details: error instanceof Error ? error.message : 'Unknown error occurred'
+    });
+  }
+});
+
+// Endpoint to get a pre-signed URL for a PDF
+router.get('/pdf', authenticate, async (req, res) => {
+  try {
+    const { key } = req.query;
+    
+    if (!key || typeof key !== 'string') {
+      return res.status(400).json({ error: 'Missing or invalid key parameter' });
+    }
+    
+    try {
+      // Get a pre-signed URL for the PDF with forced download
+      const fileUrl = await getPublicUrl(key);
+      
+      // Redirect to the pre-signed URL
+      return res.redirect(fileUrl);
+    } catch (error) {
+      console.error('Error generating pre-signed URL for PDF:', error);
+      return res.status(500).json({ 
+        error: 'Failed to generate PDF URL',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  } catch (error) {
+    console.error('Error in PDF endpoint:', error);
+    return res.status(500).json({ 
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Endpoint to get a pre-signed URL for an image
+router.get('/image', async (req, res) => {
+  try {
+    const { key } = req.query;
+    
+    if (!key || typeof key !== 'string') {
+      return res.status(400).json({ error: 'Missing or invalid key parameter' });
+    }
+    
+    try {
+      // Get a pre-signed URL for the image
+      const imageUrl = await getPublicUrl(key);
+      
+      // Redirect to the pre-signed URL
+      return res.redirect(imageUrl);
+    } catch (error) {
+      console.error('Error generating pre-signed URL:', error);
+      return res.status(500).json({ 
+        error: 'Failed to generate image URL',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  } catch (error) {
+    console.error('Error in image endpoint:', error);
+    return res.status(500).json({ 
+      error: 'Internal server error',
+      details: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });
@@ -1092,12 +1350,17 @@ router.post('/mock-test/evaluate', authenticate, checkSubscription, async (req: 
 
     // Start a transaction for data consistency
     return await prisma.$transaction(async (tx) => {
-      // First get the test
-      const testResults = await tx.$queryRaw<Array<MockTest>>`
-        SELECT * FROM mock_tests WHERE id = ${testId}::uuid LIMIT 1;
-      `;
+      // First get the test using Prisma's built-in methods
+      const testData = await tx.mockTest.findUnique({
+        where: { id: testId },
+        include: {
+          questions: {
+            orderBy: { questionNumber: 'asc' }
+          }
+        }
+      });
       
-      if (!testResults || testResults.length === 0) {
+      if (!testData) {
         console.log('Test not found:', { testId, userId });
         return res.status(404).json({ 
           success: false,
@@ -1105,19 +1368,16 @@ router.post('/mock-test/evaluate', authenticate, checkSubscription, async (req: 
         });
       }
       
-      const testData = testResults[0];
+      // Get the questions from the included relation
+      const questions = testData.questions || [];
       
-      // Then get the questions separately
-      const questions = await tx.$queryRaw<MockTestQuestion[]>`
-        SELECT * FROM mock_test_questions 
-        WHERE "testId" = ${testId}::text 
-        ORDER BY "questionNumber" ASC;
-      `;
+      // Remove the questions from testData to match the expected type
+      const { questions: _, ...testWithoutQuestions } = testData;
       
       // Combine test with questions
       const test = {
-        ...testData,
-        questions: questions || []
+        ...testWithoutQuestions,
+        questions: questions
       } as MockTest & { questions: MockTestQuestion[] };
 
       // Check if test has expired

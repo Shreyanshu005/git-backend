@@ -129,7 +129,7 @@ model EBook {
   author      String
   category    String
   coverImage  String
-  pdfUrl      String
+  fileUrl     String
   fileSize    String
   pages       Int
   language    String   @default("English")

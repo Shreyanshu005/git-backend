@@ -9,31 +9,61 @@ declare global {
             user?: {
                 userId: string;
                 mobileNumber: string;
-                isAdmin: boolean;
+                isAdmin?: boolean;
             };
         }
     }
 }
 
+interface JwtPayload {
+    userId: string;
+}
+
 export const authenticate = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
+        const token = req.header('Authorization')?.replace('Bearer ', '');
 
         if (!token) {
             console.log('❌ No token provided');
             return res.status(401).json({ error: 'Authentication required' });
         }
 
-        let decoded;
+        let decoded: JwtPayload;
         try {
-            decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key') as {
-            userId: string;
-            mobileNumber: string;
-        };
+            if (!process.env.JWT_SECRET) {
+                console.error('❌ JWT_SECRET is not configured');
+                return res.status(500).json({ error: 'Server configuration error' });
+            }
+            
+            decoded = jwt.verify(token, process.env.JWT_SECRET) as JwtPayload;
             console.log('🔑 Decoded JWT:', decoded);
+            
+            if (!decoded.userId) {
+                console.error('❌ Token missing userId');
+                return res.status(401).json({ 
+                    error: 'Invalid token format',
+                    details: 'Token is missing required user information'
+                });
+            }
         } catch (err) {
-            console.log('❌ Invalid token:', err.message);
-            return res.status(401).json({ error: 'Invalid token' });
+            console.error('❌ Token verification failed:', {
+                error: err.message,
+                name: err.name,
+                token: token ? `${token.substring(0, 10)}...` : 'undefined'
+            });
+            
+            if (err.name === 'TokenExpiredError') {
+                return res.status(401).json({ 
+                    error: 'Token expired',
+                    details: 'Your session has expired. Please log in again.'
+                });
+            }
+            
+            return res.status(401).json({ 
+                error: 'Invalid token',
+                details: err.message,
+                code: err.name
+            });
         }
 
         // Fetch user from DB to get isAdmin

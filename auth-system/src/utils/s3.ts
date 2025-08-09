@@ -6,7 +6,7 @@ import multerS3 from 'multer-s3';
 
 // Initialize S3 client
 const s3Client = new S3Client({
-  region: process.env.AWS_REGION || 'us-east-1',
+  region: process.env.AWS_REGION || 'ap-south-1',
   credentials: {
     accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
@@ -17,17 +17,36 @@ const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME!;
 
 // Configure multer for S3 uploads
 export const uploadToS3 = (folder: string) => {
+  console.log(`Configuring S3 upload for folder: ${folder}`);
+  console.log(`S3 Bucket: ${BUCKET_NAME}, Region: ${process.env.AWS_REGION || 'us-east-1'}`);
+  
   return multer({
     storage: multerS3({
       s3: s3Client,
       bucket: BUCKET_NAME,
       metadata: function (_req: any, file: Express.Multer.File, cb: (error: any, metadata?: any) => void) {
-        cb(null, { fieldName: file.fieldname });
+        console.log(`Processing file metadata: ${file.fieldname} - ${file.originalname}`);
+        cb(null, { 
+          fieldName: file.fieldname,
+          originalName: file.originalname,
+          mimeType: file.mimetype,
+          ContentDisposition: 'inline',
+          CacheControl: 'public, max-age=31536000'
+        });
       },
-key: function (_req: any, file: Express.Multer.File, cb: (error: any, key?: string) => void) {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        const fileName = `${folder}/${uniqueSuffix}-${file.originalname}`;
-        cb(null, fileName);
+      // Don't set ACL as we'll use pre-signed URLs
+      contentType: multerS3.AUTO_CONTENT_TYPE,
+      key: function (_req: any, file: Express.Multer.File, cb: (error: any, key?: string) => void) {
+        try {
+          const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+          const sanitizedFileName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+          const fileName = `${folder}/${uniqueSuffix}-${sanitizedFileName}`;
+          console.log(`Generated S3 key: ${fileName}`);
+          cb(null, fileName);
+        } catch (error) {
+          console.error('Error generating S3 key:', error);
+          cb(error as Error);
+        }
       },
     }),
 fileFilter: (_req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
@@ -110,7 +129,25 @@ export const generatePresignedUploadUrl = async (key: string, contentType: strin
   return getSignedUrl(s3Client, command, { expiresIn });
 };
 
-// Get public URL for file
-export const getPublicUrl = (key: string): string => {
-  return `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION || 'us-east-1'}.amazonaws.com/${key}`;
-}; 
+// Generate pre-signed URL for file access
+export const getPublicUrl = async (key: string): Promise<string> => {
+  try {
+    // Remove any leading slashes from the key
+    const cleanKey = key.startsWith('/') ? key.substring(1) : key;
+    
+    // Generate a pre-signed URL that's valid for 1 hour
+    const command = new GetObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: cleanKey,
+      ResponseContentDisposition: 'inline',
+      ResponseCacheControl: 'public, max-age=31536000',
+    });
+    
+    const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+    console.log('Generated pre-signed URL for:', cleanKey);
+    return url;
+  } catch (error) {
+    console.error('Error generating pre-signed URL:', error);
+    throw error;
+  }
+};
