@@ -136,13 +136,13 @@ router.post('/upload', authenticate, uploadToS3('digital-library').fields([
     
     const files = req.files as { 
       coverImage?: UploadedFile[], 
-      file?: UploadedFile[] 
+      pdfFile?: UploadedFile[] 
     };
     
     console.log('Files received:', Object.keys(files));
     
     // Validate required files
-    if (!files.coverImage?.[0] || !files.file?.[0]) {
+    if (!files.coverImage?.[0] || !files.pdfFile?.[0]) {
       const errorMessage = !files.coverImage?.[0] 
         ? 'Cover image is required' 
         : 'PDF file is required';
@@ -154,12 +154,12 @@ router.post('/upload', authenticate, uploadToS3('digital-library').fields([
     }
 
     // Get file size in MB
-    const fileSize = (files.file[0].size / (1024 * 1024)).toFixed(2);
+    const fileSize = (files.pdfFile[0].size / (1024 * 1024)).toFixed(2);
     
     // Generate pre-signed URLs for the uploaded files (valid for 1 hour)
     const [coverImageUrl, fileUrl] = await Promise.all([
       getPublicUrl(files.coverImage[0].key),
-      getPublicUrl(files.file[0].key)
+      getPublicUrl(files.pdfFile[0].key)
     ]);
 
     // Save to database
