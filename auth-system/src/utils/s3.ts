@@ -24,6 +24,7 @@ export const uploadToS3 = (folder: string) => {
     storage: multerS3({
       s3: s3Client,
       bucket: BUCKET_NAME,
+      // Remove the acl parameter since we're not using ACLs
       metadata: function (_req: any, file: Express.Multer.File, cb: (error: any, metadata?: any) => void) {
         console.log(`Processing file metadata: ${file.fieldname} - ${file.originalname}`);
         cb(null, { 
@@ -31,10 +32,9 @@ export const uploadToS3 = (folder: string) => {
           originalName: file.originalname,
           mimeType: file.mimetype,
           ContentDisposition: 'inline',
-          CacheControl: 'public, max-age=31536000'
+          CacheControl: 'public, max-age=31536000' // 1 year cache
         });
       },
-      // Don't set ACL as we'll use pre-signed URLs
       contentType: multerS3.AUTO_CONTENT_TYPE,
       key: function (_req: any, file: Express.Multer.File, cb: (error: any, key?: string) => void) {
         try {
@@ -129,25 +129,36 @@ export const generatePresignedUploadUrl = async (key: string, contentType: strin
   return getSignedUrl(s3Client, command, { expiresIn });
 };
 
-// Generate pre-signed URL for file access
-export const getPublicUrl = async (key: string): Promise<string> => {
+// Convert a file key or URL to a pre-signed URL with long expiration
+export async function convertToPublicUrl(fileUrlOrKey: string): Promise<string> {
   try {
-    // Remove any leading slashes from the key
+    if (!fileUrlOrKey) return '';
+    
+    // If it's already a URL, extract the key
+    let key = fileUrlOrKey;
+    if (key.startsWith('http')) {
+      const url = new URL(key);
+      key = url.pathname.startsWith('/') ? url.pathname.substring(1) : url.pathname;
+    }
+    
+    // Remove any leading slashes
     const cleanKey = key.startsWith('/') ? key.substring(1) : key;
     
-    // Generate a pre-signed URL that's valid for 1 hour
+    // Generate a pre-signed URL that's valid for 7 days (604800 seconds)
     const command = new GetObjectCommand({
       Bucket: BUCKET_NAME,
       Key: cleanKey,
-      ResponseContentDisposition: 'inline',
-      ResponseCacheControl: 'public, max-age=31536000',
+      ResponseContentDisposition: 'inline'
     });
     
-    const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
-    console.log('Generated pre-signed URL for:', cleanKey);
-    return url;
+    return await getSignedUrl(s3Client, command, { expiresIn: 604800 }); // 7 days
   } catch (error) {
-    console.error('Error generating pre-signed URL:', error);
-    throw error;
+    console.error('Error converting to public URL:', error);
+    return fileUrlOrKey; // Return original if conversion fails
   }
+}
+
+// Generate public URL for file access (async version)
+export const getPublicUrl = async (key: string): Promise<string> => {
+  return convertToPublicUrl(key);
 };

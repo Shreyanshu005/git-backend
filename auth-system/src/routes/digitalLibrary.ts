@@ -1,6 +1,6 @@
 import express from 'express';
 import { PrismaClient } from '@prisma/client';
-import { uploadToS3, getPublicUrl } from '../utils/s3';
+import { uploadToS3, getPublicUrl, convertToPublicUrl } from '../utils/s3';
 
 // Define types for mock test questions
 interface MockTestQuestion {
@@ -157,6 +157,7 @@ router.post('/upload', authenticate, uploadToS3('digital-library').fields([
     const fileSize = (files.pdfFile[0].size / (1024 * 1024)).toFixed(2);
     
     // Generate pre-signed URLs for the uploaded files (valid for 1 hour)
+    // Generate public URLs (no expiration)
     const [coverImageUrl, fileUrl] = await Promise.all([
       getPublicUrl(files.coverImage[0].key),
       getPublicUrl(files.pdfFile[0].key)
@@ -262,7 +263,7 @@ router.get('/ebooks', async (req, res) => {
       ];
     }
 
-    const [ebooks, total] = await Promise.all([
+    const [rawEbooks, total] = await Promise.all([
       prisma.eBook.findMany({
         where,
         skip,
@@ -284,6 +285,13 @@ router.get('/ebooks', async (req, res) => {
       }),
       prisma.eBook.count({ where })
     ]);
+
+    // Convert all URLs to pre-signed URLs with long expiration
+    const ebooks = await Promise.all(rawEbooks.map(async (ebook) => ({
+      ...ebook,
+      fileUrl: await convertToPublicUrl(ebook.fileUrl),
+      coverImage: await convertToPublicUrl(ebook.coverImage)
+    })));
 
     res.json({
       ebooks,
@@ -314,16 +322,31 @@ router.get('/ebooks/:id', async (req, res) => {
         author: true,
         category: true,
         coverImage: true,
+        fileUrl: true,
         fileSize: true,
         pages: true,
         language: true,
         createdAt: true
       }
     });
+    
     if (!ebook) {
       return res.status(404).json({ error: 'E-book not found' });
     }
-    return res.json(ebook);
+    
+    // Convert to pre-signed URLs with long expiration
+    const [coverImageUrl, fileUrl] = await Promise.all([
+      convertToPublicUrl(ebook.coverImage),
+      convertToPublicUrl(ebook.fileUrl)
+    ]);
+    
+    const ebookWithPublicUrls = {
+      ...ebook,
+      coverImage: coverImageUrl,
+      fileUrl: fileUrl
+    };
+    
+    return res.json(ebookWithPublicUrls);
   } catch (error) {
     console.error('Error fetching e-book:', error);
     return res.status(500).json({ error: 'Failed to fetch e-book' });
@@ -364,9 +387,19 @@ router.get('/ebooks/:id/download', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'E-book not found' });
     }
 
-    // Return the PDF URL for download
+    // Extract the S3 key from the file URL if it's a full URL
+    let fileKey = ebook.fileUrl;
+    if (fileKey.startsWith('http')) {
+      const url = new URL(fileKey);
+      fileKey = url.pathname.startsWith('/') ? url.pathname.substring(1) : url.pathname;
+    }
+
+    // Generate the public URL
+    const publicUrl = `https://${process.env.AWS_S3_BUCKET_NAME}.s3.${process.env.AWS_REGION || 'ap-south-1'}.amazonaws.com/${encodeURIComponent(fileKey)}`;
+    
+    // Return the public URL for download
     return res.json({ 
-      downloadUrl: ebook.fileUrl,
+      downloadUrl: publicUrl,
       title: ebook.title
     });
   } catch (error) {
@@ -641,7 +674,14 @@ router.get('/admin/ebooks', authenticate, async (req, res) => {
       orderBy: { createdAt: 'desc' }
     });
 
-    return res.json(ebooks);
+    // Convert all URLs to pre-signed URLs with long expiration
+    const ebooksWithPublicUrls = await Promise.all(ebooks.map(async (ebook) => ({
+      ...ebook,
+      coverImage: await convertToPublicUrl(ebook.coverImage),
+      fileUrl: await convertToPublicUrl(ebook.fileUrl)
+    })));
+
+    return res.json(ebooksWithPublicUrls);
   } catch (error) {
     console.error('Error fetching e-books for admin:', error);
     return res.status(500).json({ error: 'Failed to fetch e-books' });
