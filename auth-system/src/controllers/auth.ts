@@ -232,8 +232,40 @@ export const getProfile = async (req: Request, res: Response) => {
         const user = await prisma.user.findUnique({
             where: { id: userId },
             include: {
-                coursePurchases: true,
-                testSeriesPurchases: true
+                coursePurchases: {
+                    include: {
+                        course: true
+                    },
+                    orderBy: {
+                        purchasedAt: 'desc'
+                    }
+                },
+                testSeriesPurchases: {
+                    include: {
+                        testSeries: true
+                    },
+                    orderBy: {
+                        purchasedAt: 'desc'
+                    }
+                },
+                librarySubscriptions: {
+                    where: {
+                        status: 'active',
+                        OR: [
+                            { subscriptionType: 'lifetime' },
+                            { expiresAt: { gt: new Date() } }
+                        ]
+                    },
+                    orderBy: {
+                        purchasedAt: 'desc'
+                    }
+                },
+                mockTests: {
+                    orderBy: {
+                        createdAt: 'desc'
+                    },
+                    take: 5 // Show only the 5 most recent mock tests
+                }
             }
         });
 
@@ -241,17 +273,55 @@ export const getProfile = async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'User not found' });
         }
 
+        // Format the response
+        const response = {
+            id: user.id,
+            name: user.name,
+            email: user.email || 'Not provided',
+            mobileNumber: user.mobileNumber,
+            isVerified: user.isVerified,
+            isAdmin: user.isAdmin,
+            joinDate: user.createdAt,
+            lastUpdated: user.updatedAt,
+            stats: {
+                coursesPurchased: user.coursePurchases.length,
+                testSeriesPurchased: user.testSeriesPurchases.length,
+                activeSubscriptions: user.librarySubscriptions.length,
+                mockTestsTaken: user.mockTests.length
+            },
+            courses: user.coursePurchases.map(purchase => ({
+                id: purchase.id,
+                courseId: purchase.courseId,
+                title: purchase.course?.title || 'Course not found',
+                purchasedAt: purchase.purchasedAt,
+                status: purchase.status,
+                price: purchase.course?.price || 0,
+                image: purchase.course?.image
+            })),
+            testSeries: user.testSeriesPurchases.map(purchase => ({
+                id: purchase.id,
+                testSeriesId: purchase.testSeriesId,
+                title: purchase.testSeries?.title || 'Test Series not found',
+                purchasedAt: purchase.purchasedAt,
+                status: purchase.status,
+                price: purchase.testSeries?.price || 0,
+                image: purchase.testSeries?.image
+            })),
+            subscriptions: user.librarySubscriptions.map(sub => ({
+                id: sub.id,
+                type: sub.subscriptionType,
+                status: sub.status,
+                purchasedAt: sub.purchasedAt,
+                expiresAt: sub.expiresAt,
+                isActive: sub.status === 'active' && 
+                         (sub.subscriptionType === 'lifetime' || 
+                          (sub.expiresAt && new Date(sub.expiresAt) > new Date()))
+            }))
+        };
+
         return res.json({
             message: 'Profile fetched successfully',
-            user: {
-                id: user.id,
-                name: user.name,
-                mobileNumber: user.mobileNumber,
-                isVerified: user.isVerified,
-                isAdmin: user.isAdmin,
-                coursePurchases: user.coursePurchases,
-                testSeriesPurchases: user.testSeriesPurchases
-            }
+            user: response
         });
     } catch (error) {
         console.error('Get profile error:', error);

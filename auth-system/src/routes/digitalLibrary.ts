@@ -1113,6 +1113,118 @@ interface EvaluationResult {
   error?: string;
 }
 
+// Admin-only endpoint to update an e-book with file upload support
+router.put('/ebooks/:id', authenticate, uploadToS3('digital-library').fields([
+  { name: 'coverImage', maxCount: 1 },
+  {name: 'pdfFile', maxCount: 1 }
+]), async (req, res) => {
+  try {
+    console.log('Update e-book request received:', req.params);
+    const { id } = req.params;
+    const updateData = req.body;
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+    
+    console.log('Update data:', updateData);
+    console.log('Files:', files);
+    
+    // Check if user is admin
+    const userId = (req as any)?.user?.userId;
+    console.log('User ID from request:', userId);
+    
+    if (!userId) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user?.isAdmin) {
+      return res.status(403).json({ error: 'Unauthorized: Admin access required' });
+    }
+
+    // Check if ebook exists
+    const existingEbook = await prisma.eBook.findUnique({
+      where: { id },
+    });
+
+    if (!existingEbook) {
+      return res.status(404).json({ error: 'E-book not found' });
+    }
+
+    console.log('Existing ebook:', existingEbook);
+
+    // Prepare update data
+    const dataToUpdate: any = {
+      title: updateData.title || existingEbook.title,
+      subtitle: updateData.subtitle || existingEbook.subtitle,
+      description: updateData.description || existingEbook.description,
+      author: updateData.author || existingEbook.author,
+      category: updateData.category || existingEbook.category,
+      pages: updateData.pages ? parseInt(updateData.pages) : existingEbook.pages,
+      language: updateData.language || existingEbook.language,
+    };
+
+    // Handle cover image update
+    if (files.coverImage?.[0]) {
+      dataToUpdate.coverImage = files.coverImage[0].location;
+      console.log('Updating cover image to:', files.coverImage[0].location);
+    } else if (updateData.existingCoverImage) {
+      dataToUpdate.coverImage = updateData.existingCoverImage;
+      console.log('Keeping existing cover image:', updateData.existingCoverImage);
+    }
+
+    // Handle PDF file update
+    if (files.pdfFile?.[0]) {
+      dataToUpdate.fileUrl = files.pdfFile[0].location;
+      dataToUpdate.fileSize = `${(files.pdfFile[0].size / (1024 * 1024)).toFixed(1)} MB`;
+      console.log('Updating PDF file to:', files.pdfFile[0].location);
+    } else if (updateData.existingPdfFile) {
+      dataToUpdate.fileUrl = updateData.existingPdfFile;
+      console.log('Keeping existing PDF file:', updateData.existingPdfFile);
+    }
+
+    console.log('Data to update:', dataToUpdate);
+
+    // Update the ebook
+    const updatedEbook = await prisma.eBook.update({
+      where: { id },
+      data: dataToUpdate,
+      select: {
+        id: true,
+        title: true,
+        subtitle: true,
+        description: true,
+        author: true,
+        category: true,
+        coverImage: true,
+        fileUrl: true,
+        fileSize: true,
+        pages: true,
+        language: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
+
+    console.log('Database update completed for ebook:', updatedEbook.id);
+
+    // Convert URLs to public URLs if needed
+    const ebookWithPublicUrls = {
+      ...updatedEbook,
+      coverImage: await convertToPublicUrl(updatedEbook.coverImage),
+      fileUrl: await convertToPublicUrl(updatedEbook.fileUrl)
+    };
+
+    console.log('Ebook updated successfully:', ebookWithPublicUrls);
+    res.json({ message: 'E-book updated successfully', ebook: ebookWithPublicUrls });
+  } catch (error) {
+    console.error('Error updating e-book:', error);
+    res.status(500).json({ error: 'Failed to update e-book' });
+  }
+});
+
 // Admin-only endpoint to delete an e-book
 router.delete('/ebooks/:id', authenticate, async (req, res) => {
   let ebook;
