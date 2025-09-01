@@ -1116,7 +1116,7 @@ interface EvaluationResult {
 // Admin-only endpoint to update an e-book with file upload support
 router.put('/ebooks/:id', authenticate, uploadToS3('digital-library').fields([
   { name: 'coverImage', maxCount: 1 },
-  {name: 'pdfFile', maxCount: 1 }
+  { name: 'pdfFile', maxCount: 1 }
 ]), async (req, res) => {
   try {
     console.log('Update e-book request received:', req.params);
@@ -1167,8 +1167,9 @@ router.put('/ebooks/:id', authenticate, uploadToS3('digital-library').fields([
 
     // Handle cover image update
     if (files.coverImage?.[0]) {
-      dataToUpdate.coverImage = files.coverImage[0].location;
-      console.log('Updating cover image to:', files.coverImage[0].location);
+      const coverImageFile = files.coverImage[0] as any;
+      dataToUpdate.coverImage = coverImageFile.location;
+      console.log('Updating cover image to:', coverImageFile.location);
     } else if (updateData.existingCoverImage) {
       dataToUpdate.coverImage = updateData.existingCoverImage;
       console.log('Keeping existing cover image:', updateData.existingCoverImage);
@@ -1176,9 +1177,10 @@ router.put('/ebooks/:id', authenticate, uploadToS3('digital-library').fields([
 
     // Handle PDF file update
     if (files.pdfFile?.[0]) {
-      dataToUpdate.fileUrl = files.pdfFile[0].location;
-      dataToUpdate.fileSize = `${(files.pdfFile[0].size / (1024 * 1024)).toFixed(1)} MB`;
-      console.log('Updating PDF file to:', files.pdfFile[0].location);
+      const pdfFile = files.pdfFile[0] as any;
+      dataToUpdate.fileUrl = pdfFile.location;
+      dataToUpdate.fileSize = `${(pdfFile.size / (1024 * 1024)).toFixed(1)} MB`;
+      console.log('Updating PDF file to:', pdfFile.location);
     } else if (updateData.existingPdfFile) {
       dataToUpdate.fileUrl = updateData.existingPdfFile;
       console.log('Keeping existing PDF file:', updateData.existingPdfFile);
@@ -1218,10 +1220,10 @@ router.put('/ebooks/:id', authenticate, uploadToS3('digital-library').fields([
     };
 
     console.log('Ebook updated successfully:', ebookWithPublicUrls);
-    res.json({ message: 'E-book updated successfully', ebook: ebookWithPublicUrls });
+    return res.json({ message: 'E-book updated successfully', ebook: ebookWithPublicUrls });
   } catch (error) {
     console.error('Error updating e-book:', error);
-    res.status(500).json({ error: 'Failed to update e-book' });
+    return res.status(500).json({ error: 'Failed to update e-book' });
   }
 });
 
