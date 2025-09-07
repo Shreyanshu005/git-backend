@@ -38,6 +38,7 @@ model Course {
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   coursePurchases CoursePurchase[] @relation("CourseToPurchase")
+  lectures        Lecture[]
 }
 
 model TestSeries {
@@ -175,4 +176,21 @@ model AvsarRegistration {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@map("avsar_registrations")
+}
+
+model Lecture {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  videoUrl    String?  // S3 key for the video file (optional)
+  thumbnailUrl String? // S3 key for the thumbnail image
+  duration    Int?     // Duration in seconds
+  order       Int      @default(0) // Order of lecture in the course
+  isPublished Boolean  @default(false)
+  courseId    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@map("lectures")
 }

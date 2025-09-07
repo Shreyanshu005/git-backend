@@ -12,6 +12,7 @@ import dpqRoutes from './routes/dpq';
 import digitalLibraryRoutes from './routes/digitalLibrary';
 import paymentsRoutes from './routes/payments';
 import avsarRoutes from './routes/avsar';
+import lectureRoutes from './routes/lectures';
 import path from 'path';
 
 // Load environment variables from all possible locations
@@ -93,6 +94,7 @@ app.use('/api/dpq', dpqRoutes);
 app.use('/api/digital-library', digitalLibraryRoutes);
 app.use('/api/payments', paymentsRoutes);
 app.use('/api/avsar', avsarRoutes);
+app.use('/api/lectures', lectureRoutes);
 
 // Protected route example
 app.get('/api/protected', authenticate, (req, res) => {
