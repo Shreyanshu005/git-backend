@@ -1,10 +1,9 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { authenticate } from '../middlewares/auth';
 import { uploadToS3, deleteFromS3, generatePresignedUploadUrl, generatePresignedUrl } from '../utils/s3';
+import { prisma } from '../config/database';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // GET all lectures for a specific course
 router.get('/course/:courseId', authenticate, async (req, res) => {
